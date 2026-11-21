@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Layr</title>
+<meta name="description" content="Drop 3D objects, messages and routes on a map. Walk there and open them in AR.">
+<meta name="theme-color" content="#F1F2F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1116" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: full-bleed map, floating top bar, bottom sheet on phones that becomes a left rail on wide screens. */
+:root {
+  --bg: #F1F2F4;
+  --surface: #FFFFFF;
+  --surface-2: #F6F7F9;
+  --ink: #12151C;
+  --muted: #5B6270;
+  --line: #DDE0E6;
+  --accent: #E4511C;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #FCE7DE;
+  --ok: #0F8458;
+  --ok-soft: #DDF3E9;
+  --me: #2F6BFF;
+  --shadow: 0 8px 28px rgba(18, 21, 28, .14), 0 1px 3px rgba(18, 21, 28, .08);
+  --ar-bg: #DCE0E6;
+  --font-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1116; --surface: #171B22; --surface-2: #1E232C; --ink: #E9ECF1; --muted: #98A0AD;
+    --line: #2A303A; --accent: #FF7440; --accent-ink: #1A0A03; --accent-soft: #3A2016;
+    --ok: #3DD68C; --ok-soft: #14301F; --me: #6E9BFF; --ar-bg: #1A1F27;
+    --shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1116; --surface: #171B22; --surface-2: #1E232C; --ink: #E9ECF1; --muted: #98A0AD;
+  --line: #2A303A; --accent: #FF7440; --accent-ink: #1A0A03; --accent-soft: #3A2016;
+  --ok: #3DD68C; --ok-soft: #14301F; --me: #6E9BFF; --ar-bg: #1A1F27;
+  --shadow: 0 8px 28px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+#map { position: absolute; inset: 0; background: var(--bg); }
+.leaflet-container { font: 12px var(--font-ui); background: var(--bg); }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--surface) 80%, transparent) !important; color: var(--muted) !important; }
+.leaflet-control-attribution a { color: var(--muted) !important; }
+.dark-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9) saturate(.6); }
+.leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top, 0px) + 64px); }
+
+/* Top bar */
+.topbar {
+  position: fixed; z-index: 500; top: 0; left: 0; right: 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; gap: 8px; pointer-events: none;
+}
+.topbar > * { pointer-events: auto; }
+.brand {
+  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 10px;
+  background: var(--surface); border-radius: 999px; box-shadow: var(--shadow);
+  font: 700 20px/1 var(--font-display); letter-spacing: -.02em;
+}
+.brand svg { width: 22px; height: 22px; }
+.spacer { flex: 1; }
+.chip {
+  height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px;
+  background: var(--surface); border: 0; border-radius: 999px; box-shadow: var(--shadow);
+  font: 600 12px/1 var(--font-mono); letter-spacing: .02em; white-space: nowrap;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--me); }
+.chip.sim .dot { background: var(--accent); }
+.icon-btn {
+  width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 50%;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.icon-btn svg { width: 20px; height: 20px; }
+
+/* Floating actions */
+.fab-col {
+  position: fixed; z-index: 450; right: max(12px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+  bottom: calc(var(--sheet-h, 40vh) + 12px);
+  transition: bottom .25s ease;
+}
+.fab {
+  height: 52px; padding: 0 20px 0 16px; border: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow);
+  font-weight: 700; font-size: 16px;
+}
+.fab svg { width: 22px; height: 22px; }
+
+/* Crosshair for placing */
+.cross {
+  position: fixed; z-index: 420; width: 44px; height: 44px; margin: -44px 0 0 -22px; pointer-events: none;
+  left: var(--cx, 50%); top: var(--cy, 30%);
+}
+.cross svg { width: 44px; height: 44px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.3)); }
+
+/* Sheet */
+.sheet {
+  position: fixed; z-index: 480; left: 0; right: 0; bottom: 0;
+  max-height: 58vh; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 0; flex: none; }
+.sheet-body {
+  overflow-y: auto; overscroll-behavior: contain;
+  padding-block: 10px 18px;
+  padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 820px) {
+  .sheet {
+    left: max(12px, env(safe-area-inset-left, 0px)); right: auto; width: 392px;
+    top: calc(env(safe-area-inset-top, 0px) + 62px); bottom: 12px; max-height: none; border-radius: 18px;
+  }
+  .sheet .grab { display: none; }
+  .fab-col { bottom: 24px !important; }
+}
+
+h2 { font: 700 22px/1.15 var(--font-display); letter-spacing: -.015em; margin: 4px 0 2px; text-wrap: balance; }
+.eyebrow { font: 600 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.item {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 10px 0; border-top: 1px solid var(--line); background: none; border-left: 0; border-right: 0; border-bottom: 0;
+  text-align: left; width: 100%;
+}
+.list li:first-child .item { border-top: 0; }
+.glyph {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--ink); font-size: 18px; font-weight: 700;
+}
+.glyph svg { width: 20px; height: 20px; }
+.item .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .s { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status {
+  font: 600 12px/1 var(--font-mono); padding: 6px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--surface-2); color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.status.in { background: var(--ok-soft); color: var(--ok); }
+
+.empty { padding: 18px 0 8px; color: var(--muted); }
+
+.btn {
+  height: 48px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.primary:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+.btn.ghost { border-color: transparent; background: var(--surface-2); }
+.btn.danger { color: var(--accent); }
+.btn.sm { height: 38px; padding: 0 12px; font-size: 14px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row .btn { flex: 1 1 auto; }
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 14px 0; font-size: 14px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.message-preview {
+  margin: 12px 0; padding: 14px 16px; border-radius: 12px; background: var(--surface-2);
+  border-left: 4px solid var(--c, var(--accent)); font-size: 15px;
+}
+
+.back { border: 0; background: none; padding: 4px 0; color: var(--muted); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+
+/* Compose form */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px; border-radius: 12px; background: var(--surface-2); margin: 12px 0; }
+.seg button { height: 38px; border: 0; border-radius: 9px; background: none; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.field label { font-weight: 600; font-size: 13px; }
+.field input[type="text"], .field textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: var(--surface); font-size: 16px;
+}
+.field textarea { min-height: 84px; resize: vertical; }
+.models { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.model {
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--surface); text-align: left;
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.model b { font-size: 14px; }
+.model span { font-size: 12px; color: var(--muted); }
+.model[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input { flex: 1; accent-color: var(--accent); }
+.note { font-size: 13px; color: var(--muted); }
+
+/* Map markers */
+.pin {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); color: var(--ink); border: 2px solid var(--ink);
+  box-shadow: 0 3px 8px rgba(0,0,0,.25); font-weight: 700; font-size: 15px; position: relative;
+}
+.pin svg { width: 17px; height: 17px; }
+.pin.in { border-color: var(--ok); color: var(--ok); }
+.pin.in::after {
+  content: ""; position: absolute; inset: -8px; border-radius: 50%; border: 2px solid var(--ok);
+  animation: ping 1.8s ease-out infinite;
+}
+.pin.sel { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.me { width: 20px; height: 20px; border-radius: 50%; background: var(--me); border: 3px solid #fff; box-shadow: 0 0 0 6px color-mix(in srgb, var(--me) 25%, transparent), 0 2px 6px rgba(0,0,0,.3); }
+.me.sim { background: var(--accent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent), 0 2px 6px rgba(0,0,0,.3); }
+.wp { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 11px/1 var(--font-mono); border: 2px solid #fff; }
+@keyframes ping { from { transform: scale(.7); opacity: .9; } to { transform: scale(1.4); opacity: 0; } }
+
+/* Toast */
+.toast {
+  position: fixed; z-index: 2000; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 60px); transform: translateX(-50%);
+  max-width: min(92vw, 460px); padding: 11px 16px; border-radius: 12px;
+  background: var(--ink); color: var(--bg); font-weight: 500; font-size: 14px; box-shadow: var(--shadow);
+}
+
+/* AR view */
+#ar { position: fixed; inset: 0; z-index: 1500; background: var(--ar-bg); }
+#ar.xr { background: transparent; }
+#arVideo, #arStage, #arStage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#arVideo { object-fit: cover; }
+.ar-hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+.ar-top {
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+}
+.ar-top > * { pointer-events: auto; }
+.ar-title { min-width: 0; padding: 8px 14px; border-radius: 14px; background: rgba(12, 14, 18, .62); color: #fff; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.ar-title b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-title span { font: 600 11px/1.2 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.ar-close { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(12, 14, 18, .62); color: #fff; display: grid; place-items: center; flex: none; }
+.ar-close svg { width: 20px; height: 20px; }
+.ar-bottom { display: flex; justify-content: center; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+.ar-hint { max-width: 420px; text-align: center; padding: 10px 16px; border-radius: 14px; background: rgba(12, 14, 18, .62); color: #fff; font-weight: 500; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pin.in::after { animation: none; opacity: .5; }
+  .fab-col { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="map" aria-label="Map of nearby drops"></div>
+
+<header class="topbar">
+  <div class="brand" aria-label="Layr">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3 21 8l-9 5-9-5 9-5Z" fill="var(--accent)"/>
+      <path d="m3 12 9 5 9-5" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m3 16 9 5 9-5" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round" opacity=".45"/>
+    </svg>
+    Layr
+  </div>
+  <div class="spacer"></div>
+  <button class="chip" id="locChip" type="button" aria-label="Location source. Tap to switch between GPS and simulated location."><span class="dot"></span><span id="locText">Locating…</span></button>
+  <button class="icon-btn" id="aboutBtn" type="button" aria-label="About this prototype">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+  </button>
+</header>
+
+<div class="fab-col" id="fabs">
+  <button class="icon-btn" id="recenter" type="button" aria-label="Center on my location">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+  </button>
+  <button class="fab" id="dropBtn" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    Drop
+  </button>
+</div>
+
+<div class="cross" id="cross" hidden aria-hidden="true">
+  <svg viewBox="0 0 44 44"><path d="M22 42s14-13.2 14-24a14 14 0 1 0-28 0c0 10.8 14 24 14 24Z" fill="var(--accent)" stroke="#fff" stroke-width="2.5"/><circle cx="22" cy="18" r="5" fill="#fff"/></svg>
+</div>
+
+<section class="sheet" id="sheet" aria-live="polite">
+  <div class="grab" aria-hidden="true"></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<div id="ar" hidden>
+  <video id="arVideo" playsinline muted autoplay hidden></video>
+  <div id="arStage"></div>
+  <div class="ar-hud">
+    <div class="ar-top">
+      <div class="ar-title"><span id="arMode">AR</span><b id="arTitle">Drop</b></div>
+      <button class="ar-close" id="arClose" type="button" aria-label="Close AR view">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="ar-bottom"><div class="ar-hint" id="arHint">Starting…</div></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const EARTH = 6371000, rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+function dist(a, b) {
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b) {
+  const y = Math.sin(rad(b.lng - a.lng)) * Math.cos(rad(b.lat));
+  const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lng - a.lng));
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+function offset(p, meters, brg) {
+  const d = meters / EARTH, b = rad(brg), la = rad(p.lat), lo = rad(p.lng);
+  const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return { lat: deg(la2), lng: deg(lo2) };
+}
+const fmtDist = m => m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km";
+const compass = b => ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(b / 45) % 8];
+const fmtCoord = p => p.lat.toFixed(5) + ", " + p.lng.toFixed(5);
+function routeLength(pts) { let t = 0; for (let i = 1; i < pts.length; i++) t += dist(pts[i - 1], pts[i]); return t; }
+
+/* ---------- content catalog ---------- */
+const MODELS = {
+  beacon:  { name: "Beacon",  desc: "Crystal that spins" },
+  balloon: { name: "Balloon", desc: "Bobs in the breeze" },
+  pine:    { name: "Pine",    desc: "Low-poly, sways" },
+  portal:  { name: "Portal",  desc: "Glowing ring" },
+  totem:   { name: "Totem",   desc: "Turning blocks" }
+};
+const COLORS = ["#E4511C", "#2F6BFF", "#0F8458", "#B23AD1", "#E0A100"];
+const KIND_LABEL = { model: "Object", message: "Message", route: "Route" };
+const ICON = {
+  model: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>',
+  message: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9.5h8M8 12.5h5" stroke-linecap="round"/></svg>',
+  route: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 18h6a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h6"/></svg>'
+};
+const DEFAULT_LOC = { lat: 38.88947, lng: -77.03524 }; // National Mall, used when there's no GPS
+
+/* ---------- state ---------- */
+const S = {
+  drops: store.get("layr.drops.v1", []),
+  me: null, lastGps: null, sim: false,
+  view: "list", selected: null, draft: null,
+  xr: false, firstFix: true
+};
+function save() { store.set("layr.drops.v1", S.drops); }
+
+/* ---------- map ---------- */
+const map = L.map("map", { zoomControl: false, attributionControl: true, tap: true }).setView([DEFAULT_LOC.lat, DEFAULT_LOC.lng], 18);
+map.attributionControl.setPosition("topright");
+// OpenStreetMap's standard tiles: free, no key, fine for a prototype. Swap for a hosted provider before real traffic.
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 20, maxNativeZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+function applyTiles() {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : darkMQ.matches;
+  document.body.classList.toggle("dark-map", dark);
+}
+applyTiles(); darkMQ.addEventListener?.("change", applyTiles);
+
+const dropLayer = L.layerGroup().addTo(map);
+const draftLayer = L.layerGroup().addTo(map);
+let meMarker = null, meAcc = null;
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+function renderPins() {
+  dropLayer.clearLayers();
+  for (const d of S.drops) {
+    const inR = inRange(d), sel = S.selected === d.id;
+    L.circle([d.lat, d.lng], {
+      radius: d.radius, color: inR ? cssVar("--ok") : cssVar("--accent"), weight: 1.5,
+      opacity: sel ? .9 : .5, fillOpacity: sel ? .12 : .05, dashArray: inR ? null : "4 5", interactive: false
+    }).addTo(dropLayer);
+    if (d.kind === "route" && d.points) {
+      L.polyline(d.points.map(p => [p.lat, p.lng]), { color: cssVar("--accent"), weight: 4, opacity: sel ? .95 : .55, dashArray: "1 8", lineCap: "round", interactive: false }).addTo(dropLayer);
+    }
+    const icon = L.divIcon({ className: "", iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="pin ${inR ? "in" : ""} ${sel ? "sel" : ""}">${ICON[d.kind]}</div>` });
+    L.marker([d.lat, d.lng], { icon, keyboard: true, title: d.title }).on("click", () => select(d.id)).addTo(dropLayer);
+  }
+}
+
+function renderMe() {
+  if (!S.me) return;
+  const ll = [S.me.lat, S.me.lng];
+  const icon = L.divIcon({ className: "", iconSize: [20, 20], iconAnchor: [10, 10], html: `<div class="me ${S.sim ? "sim" : ""}"></div>` });
+  if (!meMarker) { meMarker = L.marker(ll, { icon, interactive: false, zIndexOffset: 1000 }).addTo(map); }
+  else { meMarker.setLatLng(ll); meMarker.setIcon(icon); }
+  const acc = S.sim ? 0 : S.me.acc;
+  if (!meAcc) meAcc = L.circle(ll, { radius: acc, color: cssVar("--me"), weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
+  else { meAcc.setLatLng(ll); meAcc.setRadius(acc); }
+  $("#locChip").classList.toggle("sim", S.sim);
+  $("#locText").textContent = S.sim ? "Simulated" : "GPS ±" + Math.round(S.me.acc) + " m";
+}
+
+/* ---------- location ---------- */
+function setMe(p) {
+  S.me = p;
+  if (S.firstFix) {
+    S.firstFix = false;
+    map.setView([p.lat, p.lng], 18, { animate: false });
+    seedIfEmpty();
+    if (S.pendingSelect) { const id = S.pendingSelect; S.pendingSelect = null; select(id); }
+  }
+  renderMe(); renderPins(); refreshSheet();
+}
+function startGeo() {
+  if (!("geolocation" in navigator)) return useSim("This browser has no location access");
+  const timer = setTimeout(() => { if (!S.me) useSim("No GPS fix yet"); }, 7000);
+  navigator.geolocation.watchPosition(pos => {
+    clearTimeout(timer);
+    S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    if (!S.sim) setMe({ ...S.lastGps });
+  }, err => {
+    clearTimeout(timer);
+    if (!S.me) useSim(err.code === 1 ? "Location permission was denied" : "Location is unavailable");
+  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+}
+function useSim(reason) {
+  S.sim = true;
+  setMe({ ...(S.me || DEFAULT_LOC), acc: 0 });
+  if (reason) toast(reason + ". Using a simulated location. Tap the map to move yourself.");
+}
+$("#locChip").addEventListener("click", () => {
+  if (S.sim) {
+    if (!S.lastGps) { toast("No GPS fix available yet. Staying in simulated mode."); return; }
+    S.sim = false; setMe({ ...S.lastGps }); toast("Using your real GPS location.");
+  } else { S.sim = true; setMe({ ...S.me, acc: 0 }); toast("Simulated location. Tap the map to move yourself."); }
+});
+$("#recenter").addEventListener("click", () => { if (S.me) focusOn(S.me, 18); });
+
+/* in range = distance minus GPS uncertainty (capped) is inside the reveal radius */
+function inRange(d) {
+  if (!S.me) return false;
+  const slack = S.sim ? 0 : Math.min(S.me.acc || 0, 50);
+  return dist(S.me, d) - slack <= d.radius;
+}
+
+/* ---------- seed sample content around the first fix ---------- */
+function seedIfEmpty() {
+  if (S.drops.length || store.get("layr.seeded", false)) return;
+  const me = S.me;
+  const mk = (m, b, o) => ({ id: uid(), created: Date.now(), sample: true, radius: 30, ...offset(me, m, b), ...o });
+  const r0 = offset(me, 70, 115);
+  const pts = [r0, offset(r0, 60, 60), offset(r0, 120, 20), offset(r0, 150, 330)];
+  S.drops = [
+    mk(10, 35, { kind: "model", model: "beacon", title: "Crystal by the path" }),
+    mk(22, 210, { kind: "message", title: "A note for whoever stops here", text: "You made it. Look up: the light hits this spot best around 5 pm.", color: "#2F6BFF" }),
+    mk(160, 300, { kind: "model", model: "balloon", title: "Balloon over the lawn", radius: 40 }),
+    mk(260, 20, { kind: "model", model: "portal", title: "Portal at the corner" }),
+    { id: uid(), created: Date.now(), sample: true, kind: "route", title: "Short loop", radius: 30, lat: r0.lat, lng: r0.lng, points: pts }
+  ];
+  save(); store.set("layr.seeded", true);
+  renderPins(); refreshSheet();
+}
+
+/* ---------- sheet ---------- */
+const body = $("#sheetBody");
+function setSheetHeight() {
+  const wide = matchMedia("(min-width: 820px)").matches;
+  const h = wide ? 0 : $("#sheet").getBoundingClientRect().height;
+  document.documentElement.style.setProperty("--sheet-h", h + "px");
+  placeCross();
+}
+new ResizeObserver(setSheetHeight).observe($("#sheet"));
+addEventListener("resize", setSheetHeight);
+
+function refreshSheet() {
+  if (S.view === "list") renderList();
+  else if (S.view === "detail") renderDetail();
+  else if (S.view === "about") return;
+  else if (S.view === "compose") updateComposeLive();
+}
+
+function sorted() {
+  return S.drops.map(d => ({ d, m: S.me ? dist(S.me, d) : Infinity })).sort((a, b) => a.m - b.m);
+}
+function subline(d) {
+  if (d.kind === "model") return "Object · " + (MODELS[d.model]?.name || "Model");
+  if (d.kind === "route") return "Route · " + (d.points?.length || 0) + " stops · " + fmtDist(routeLength(d.points || []));
+  return "Message · " + (d.text || "").slice(0, 40);
+}
+function statusChip(d, m) {
+  if (!S.me) return '<span class="status">…</span>';
+  return inRange(d) ? '<span class="status in">In range</span>' : `<span class="status">${fmtDist(m)}</span>`;
+}
+
+function renderList() {
+  S.view = "list";
+  const rows = sorted();
+  const inCount = rows.filter(r => inRange(r.d)).length;
+  body.innerHTML = `
+    <div class="row-head">
+      <div><div class="eyebrow">${S.me ? esc(fmtCoord(S.me)) : "Finding you"}</div><h2>Nearby drops</h2></div>
+      <span class="muted mono">${inCount} in range</span>
+    </div>
+    ${rows.length ? `<ul class="list">${rows.map(({ d, m }) => `
+      <li><button class="item" data-act="select" data-id="${esc(d.id)}" type="button">
+        <span class="glyph">${ICON[d.kind]}</span>
+        <span style="min-width:0"><div class="t">${esc(d.title)}</div><div class="s">${esc(subline(d))}</div></span>
+        ${statusChip(d, m)}
+      </button></li>`).join("")}</ul>`
+      : `<p class="empty">Nothing here yet. Tap <b>Drop</b> to leave the first object, message or route.</p>`}
+  `;
+  showFabs(true);
+}
+
+function renderDetail() {
+  const d = S.drops.find(x => x.id === S.selected);
+  if (!d) { S.selected = null; return renderList(); }
+  S.view = "detail";
+  const m = S.me ? dist(S.me, d) : null;
+  const inR = inRange(d);
+  const away = m == null ? "" : Math.max(0, Math.ceil(m - (S.sim ? 0 : Math.min(S.me.acc, 50)) - d.radius));
+  body.innerHTML = `
+    <button class="back" data-act="back" type="button">‹ Nearby</button>
+    <div class="eyebrow" style="margin-top:8px">${esc(KIND_LABEL[d.kind])}${d.sample ? " · sample" : ""}${d.shared ? " · shared with you" : ""}</div>
+    <h2>${esc(d.title)}</h2>
+    ${d.kind === "message" ? `<div class="message-preview" style="--c:${esc(d.color)}">${inR ? esc(d.text) : '<span class="muted">The message unlocks when you get here.</span>'}</div>` : ""}
+    <dl class="facts">
+      <dt>Status</dt><dd>${statusChip(d, m)}</dd>
+      ${m != null ? `<dt>Distance</dt><dd class="mono">${fmtDist(m)} ${compass(bearing(S.me, d))}</dd>` : ""}
+      <dt>Opens within</dt><dd class="mono">${d.radius} m</dd>
+      ${d.kind === "model" ? `<dt>Object</dt><dd>${esc(MODELS[d.model]?.name)}, ${esc(MODELS[d.model]?.desc.toLowerCase())}</dd>` : ""}
+      ${d.kind === "route" ? `<dt>Route</dt><dd>${d.points.length} stops, ${fmtDist(routeLength(d.points))}</dd>` : ""}
+      <dt>Pin</dt><dd class="mono">${esc(fmtCoord(d))}</dd>
+      <dt>Placement</dt><dd>Proximity: appears in front of you</dd>
+    </dl>
+    <div class="btn-row">
+      <button class="btn primary" data-act="open" type="button" ${inR ? "" : "disabled"}>${inR ? "Open in AR" : `Walk ${fmtDist(away)} closer`}</button>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      ${inR ? "" : '<button class="btn ghost sm" data-act="preview" type="button">Preview anyway</button>'}
+      <button class="btn ghost sm" data-act="share" type="button">Copy share link</button>
+      <button class="btn ghost sm danger" data-act="delete" type="button">Delete</button>
+    </div>
+    ${!inR && S.sim ? '<p class="note">Simulated mode: tap the map near the pin to walk there.</p>' : ""}
+  `;
+  showFabs(true);
+}
+
+function renderAbout() {
+  S.view = "about";
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const line = (ok, t) => `<dt>${ok ? "Yes" : "No"}</dt><dd>${t}</dd>`;
+  body.innerHTML = `
+    <button class="back" data-act="back" type="button">‹ Nearby</button>
+    <div class="eyebrow" style="margin-top:8px">Prototype</div>
+    <h2>How this works</h2>
+    <p>Drops live on the map. GPS decides when you're close enough to open one. Once it opens, the phone's own tracking holds it in place, so it doesn't follow GPS around.</p>
+    <dl class="facts">
+      ${line(S.xr, "WebXR AR with hit testing on this device. Objects are anchored to the floor.")}
+      ${line(touch && "DeviceOrientationEvent" in window, "Camera with motion sensors. Objects hold steady as you turn, but not as you walk.")}
+      ${line(true, "3D preview you can drag to orbit.")}
+    </dl>
+    <p class="note">Full anchoring in the browser needs Chrome on an ARCore Android phone, served over HTTPS. iPhone Safari has no WebXR, so iPhones get camera mode here. The native app in the MVP plan uses ARKit, ARCore and Google's VPS for precise placement.</p>
+    <p class="note">Drops are saved in this browser only. Use <b>Copy share link</b> to send one to someone else.</p>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn ghost sm danger" data-act="reset" type="button">Reset to sample drops</button>
+    </div>
+  `;
+  showFabs(false);
+}
+
+/* ---------- compose ---------- */
+function startCompose() {
+  S.selected = null;
+  S.draft = { kind: "model", model: "beacon", title: "", text: "", color: COLORS[0], radius: 30, points: [] };
+  S.view = "compose";
+  renderCompose();
+  renderPins();
+}
+function renderCompose() {
+  const d = S.draft;
+  body.innerHTML = `
+    <button class="back" data-act="cancel" type="button">‹ Cancel</button>
+    <h2 style="margin-top:6px">New drop</h2>
+    <div class="eyebrow" id="cPos">${d.kind === "route" ? "Tap the map to add stops" : "Move the map to aim the pin"}</div>
+    <div class="seg" role="group" aria-label="Drop type">
+      ${["model", "message", "route"].map(k => `<button type="button" data-act="kind" data-k="${k}" aria-pressed="${d.kind === k}">${KIND_LABEL[k]}</button>`).join("")}
+    </div>
+    ${d.kind === "model" ? `
+      <div class="field"><label>Object</label>
+        <div class="models">${Object.entries(MODELS).map(([k, v]) => `<button type="button" class="model" data-act="model" data-k="${k}" aria-pressed="${d.model === k}"><b>${v.name}</b><span>${v.desc}</span></button>`).join("")}</div>
+      </div>` : ""}
+    ${d.kind === "message" ? `
+      <div class="field"><label for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they get here?">${esc(d.text)}</textarea></div>
+      <div class="field"><label>Card color</label><div class="swatches">${COLORS.map(c => `<button type="button" class="swatch" data-act="color" data-c="${c}" aria-label="Color ${c}" aria-pressed="${d.color === c}" style="background:${c}"></button>`).join("")}</div></div>` : ""}
+    ${d.kind === "route" ? `
+      <p class="note" id="cStops">${d.points.length} stops. People open the route at the first stop.</p>
+      <div class="btn-row"><button class="btn ghost sm" data-act="undo" type="button">Remove last stop</button></div>` : ""}
+    <div class="field"><label for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "route" ? "Short loop" : d.kind === "message" ? "A note for whoever stops here" : MODELS[d.model].name}" value="${esc(d.title)}"></div>
+    <div class="field"><label for="cRadius">Opens within</label>
+      <div class="range-row"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} m</span></div>
+    </div>
+    <div class="btn-row"><button class="btn primary" data-act="save" type="button">Drop it here</button></div>
+  `;
+  $("#cTitle").addEventListener("input", e => d.title = e.target.value);
+  $("#cRadius").addEventListener("input", e => { d.radius = +e.target.value; $("#cRadiusV").textContent = d.radius + " m"; drawDraft(); });
+  $("#cText")?.addEventListener("input", e => d.text = e.target.value);
+  showFabs(false);
+  $("#cross").hidden = d.kind === "route";
+  placeCross(); drawDraft();
+}
+function crossPoint() {
+  const r = $("#map").getBoundingClientRect(), sh = $("#sheet").getBoundingClientRect();
+  const top = 70;
+  if (matchMedia("(min-width: 820px)").matches) return L.point((sh.right + r.right) / 2 - r.left, r.height / 2);
+  return L.point(r.width / 2, top + (sh.top - r.top - top) / 2 + 22);
+}
+function placeCross() {
+  const p = crossPoint();
+  document.documentElement.style.setProperty("--cx", p.x + "px");
+  document.documentElement.style.setProperty("--cy", p.y + "px");
+  if (S.view === "compose") drawDraft();
+}
+function draftCenter() { return map.containerPointToLatLng(crossPoint()); }
+function drawDraft() {
+  draftLayer.clearLayers();
+  if (S.view !== "compose" || !S.draft) return;
+  const d = S.draft;
+  if (d.kind === "route") {
+    if (d.points.length) {
+      L.polyline(d.points.map(p => [p.lat, p.lng]), { color: cssVar("--accent"), weight: 4, dashArray: "1 8", lineCap: "round" }).addTo(draftLayer);
+      L.circle([d.points[0].lat, d.points[0].lng], { radius: d.radius, color: cssVar("--accent"), weight: 1.5, fillOpacity: .08, dashArray: "4 5", interactive: false }).addTo(draftLayer);
+      d.points.forEach((p, i) => L.marker([p.lat, p.lng], { interactive: false, icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: `<div class="wp">${i + 1}</div>` }) }).addTo(draftLayer));
+    }
+  } else {
+    const c = draftCenter();
+    L.circle(c, { radius: d.radius, color: cssVar("--accent"), weight: 1.5, fillOpacity: .08, dashArray: "4 5", interactive: false }).addTo(draftLayer);
+  }
+  updateComposeLive();
+}
+function updateComposeLive() {
+  if (S.view !== "compose") return;
+  const el = $("#cPos"); if (!el) return;
+  const d = S.draft;
+  if (d.kind === "route") { el.textContent = "Tap the map to add stops"; const s = $("#cStops"); if (s) s.textContent = `${d.points.length} stops${d.points.length > 1 ? ", " + fmtDist(routeLength(d.points)) : ""}. People open the route at the first stop.`; }
+  else { const c = draftCenter(); const p = { lat: c.lat, lng: c.lng }; el.textContent = fmtCoord(p) + (S.me ? " · " + fmtDist(dist(S.me, p)) + " from you" : ""); }
+}
+function saveDraft() {
+  const d = S.draft;
+  let loc, extra = {};
+  if (d.kind === "route") {
+    if (d.points.length < 2) return toast("Add at least two stops by tapping the map.");
+    loc = d.points[0]; extra.points = d.points;
+  } else { const c = draftCenter(); loc = { lat: c.lat, lng: c.lng }; }
+  if (d.kind === "message") {
+    if (!d.text.trim()) return toast("Write a message first.");
+    extra.text = d.text.trim(); extra.color = d.color;
+  }
+  if (d.kind === "model") extra.model = d.model;
+  const title = d.title.trim() || (d.kind === "model" ? MODELS[d.model].name : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 5).join(" "));
+  const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
+  S.drops.push(drop); save();
+  S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers();
+  toast("Dropped. Anyone within " + drop.radius + " m can open it.");
+  select(drop.id);
+}
+
+/* ---------- selection & actions ---------- */
+function focusOn(p, z) {
+  const zoom = z || Math.max(map.getZoom(), 17);
+  const target = map.project([p.lat, p.lng], zoom);
+  const size = map.getSize(), cp = crossPoint();
+  const off = L.point(cp.x - size.x / 2, cp.y - size.y / 2 - 22);
+  map.setView(map.unproject(target.subtract(off), zoom), zoom);
+}
+function select(id) {
+  if (S.view === "compose") return;
+  S.selected = id; renderDetail(); renderPins();
+  const d = S.drops.find(x => x.id === id); if (d) focusOn(d);
+}
+body.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const act = b.dataset.act;
+  if (act === "select") select(b.dataset.id);
+  else if (act === "back") { S.selected = null; renderList(); renderPins(); }
+  else if (act === "open") openDrop(S.selected, false);
+  else if (act === "preview") openDrop(S.selected, true);
+  else if (act === "share") shareDrop(S.selected);
+  else if (act === "delete") {
+    if (b.dataset.confirm) { S.drops = S.drops.filter(x => x.id !== S.selected); save(); S.selected = null; renderList(); renderPins(); toast("Deleted."); }
+    else { b.dataset.confirm = "1"; b.textContent = "Tap again to delete"; }
+  }
+  else if (act === "reset") {
+    if (b.dataset.confirm) { S.drops = []; store.set("layr.seeded", false); save(); seedIfEmpty(); renderList(); renderPins(); toast("Sample drops restored."); }
+    else { b.dataset.confirm = "1"; b.textContent = "Tap again to erase your drops"; }
+  }
+  else if (act === "cancel") { S.draft = null; $("#cross").hidden = true; draftLayer.clearLayers(); renderList(); }
+  else if (act === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
+  else if (act === "model") { S.draft.model = b.dataset.k; body.querySelectorAll(".model").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = MODELS[S.draft.model].name; }
+  else if (act === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
+  else if (act === "undo") { S.draft.points.pop(); drawDraft(); }
+  else if (act === "save") saveDraft();
+});
+$("#dropBtn").addEventListener("click", startCompose);
+$("#aboutBtn").addEventListener("click", () => { if (S.view !== "compose") renderAbout(); });
+function showFabs(v) { $("#fabs").hidden = !v; }
+
+map.on("click", e => {
+  if (S.view === "compose" && S.draft.kind === "route") {
+    S.draft.points.push({ lat: e.latlng.lat, lng: e.latlng.lng }); drawDraft(); return;
+  }
+  if (S.view === "compose") return;
+  if (S.sim) setMe({ lat: e.latlng.lat, lng: e.latlng.lng, acc: 0 });
+});
+map.on("move", () => { if (S.view === "compose" && S.draft.kind !== "route") drawDraft(); });
+
+/* ---------- sharing ---------- */
+const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
+function shareDrop(id) {
+  const d = S.drops.find(x => x.id === id); if (!d) return;
+  const { sample, shared, ...clean } = d;
+  const url = location.href.split("#")[0] + "#drop=" + b64e(JSON.stringify(clean));
+  const done = () => toast("Share link copied. Anyone who opens it can find this drop.");
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+  else fallbackCopy(url, done);
+}
+function fallbackCopy(text, done) {
+  const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+  try { document.execCommand("copy"); done(); } catch (e) { toast("Copy failed. Link: " + text); }
+  t.remove();
+}
+function sanitize(d) {
+  const num = v => typeof v === "number" && isFinite(v);
+  if (!d || !["model", "message", "route"].includes(d.kind) || !num(d.lat) || !num(d.lng)) return null;
+  const out = {
+    id: String(d.id || uid()).slice(0, 32), created: num(d.created) ? d.created : Date.now(), kind: d.kind,
+    title: String(d.title || "Shared drop").slice(0, 60), radius: clamp(num(d.radius) ? d.radius : 30, 10, 200),
+    lat: clamp(d.lat, -90, 90), lng: clamp(d.lng, -180, 180), shared: true
+  };
+  if (d.kind === "model") out.model = MODELS[d.model] ? d.model : "beacon";
+  if (d.kind === "message") { out.text = String(d.text || "").slice(0, 280); out.color = /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : COLORS[0]; }
+  if (d.kind === "route") {
+    out.points = (Array.isArray(d.points) ? d.points : []).filter(p => p && num(p.lat) && num(p.lng)).slice(0, 50).map(p => ({ lat: p.lat, lng: p.lng }));
+    if (out.points.length < 2) return null;
+  }
+  return out;
+}
+function importFromHash() {
+  const m = location.hash.match(/^#drop=([A-Za-z0-9_-]+)$/); if (!m) return;
+  try {
+    const d = sanitize(JSON.parse(b64d(m[1])));
+    if (!d) throw new Error("bad");
+    if (!S.drops.some(x => x.id === d.id)) { S.drops.push(d); save(); }
+    store.set("layr.seeded", true);
+    S.pendingSelect = d.id;
+    toast("Someone shared a drop with you: " + d.title);
+  } catch (e) { toast("That share link is damaged or incomplete."); }
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3800);
+}
+
+/* =================================================================
+   AR
+   ================================================================= */
+const AR = { stop: null };
+if (navigator.xr?.isSessionSupported) navigator.xr.isSessionSupported("immersive-ar").then(v => S.xr = v).catch(() => {});
+
+function openDrop(id, force) {
+  const d = S.drops.find(x => x.id === id); if (!d) return;
+  if (!force && !inRange(d)) return;
+  if (S.xr) return startXR(d);
+  const touch = matchMedia("(pointer: coarse)").matches;
+  if (touch && navigator.mediaDevices?.getUserMedia && "DeviceOrientationEvent" in window) {
+    // iOS needs this request inside the tap, before any await.
+    const perm = typeof DeviceOrientationEvent.requestPermission === "function"
+      ? DeviceOrientationEvent.requestPermission().catch(() => "denied") : Promise.resolve("granted");
+    return startCamera(d, perm);
+  }
+  startViewer(d, "No AR camera on this device. Drag to look around.");
+}
+
+function showAR(d, mode) {
+  $("#ar").hidden = false;
+  $("#ar").classList.toggle("xr", mode === "xr");
+  $("#arTitle").textContent = d.title;
+  $("#arMode").textContent = { xr: "WebXR · anchored", camera: "Camera · rotation only", viewer: "3D preview" }[mode];
+}
+function hint(t) { $("#arHint").textContent = t; }
+function closeAR() {
+  if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
+  $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
+}
+$("#arClose").addEventListener("click", closeAR);
+
+function makeRenderer() {
+  const r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  r.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  r.setSize(innerWidth, innerHeight);
+  r.outputEncoding = THREE.sRGBEncoding;
+  r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+  $("#arStage").appendChild(r.domElement);
+  return r;
+}
+
+/* soft contact shadow texture */
+function blobTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const x = c.getContext("2d"), g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
+  g.addColorStop(0, "rgba(0,0,0,.55)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
+function roundRect(x, X, Y, W, H, r) {
+  x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + W, Y, X + W, Y + H, r); x.arcTo(X + W, Y + H, X, Y + H, r);
+  x.arcTo(X, Y + H, X, Y, r); x.arcTo(X, Y, X + W, Y, r); x.closePath();
+}
+function wrap(x, text, maxW) {
+  const words = String(text).split(/\s+/), lines = []; let line = "";
+  for (const w of words) { const t = line ? line + " " + w : w; if (x.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line); return lines;
+}
+function cardTexture({ eyebrow, title, body: text, color }) {
+  const c = document.createElement("canvas"); c.width = 1024; c.height = 640;
+  const x = c.getContext("2d");
+  x.save(); roundRect(x, 0, 0, 1024, 640, 48); x.clip();
+  x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, 1024, 640);
+  x.fillStyle = color; x.fillRect(0, 0, 1024, 26);
+  x.restore();
+  x.fillStyle = "#5B6270"; x.font = '600 32px "JetBrains Mono", ui-monospace, monospace';
+  x.fillText(eyebrow.toUpperCase(), 64, 104);
+  x.fillStyle = "#12151C"; x.font = '700 62px "Instrument Sans", system-ui, sans-serif';
+  const tl = wrap(x, title, 896).slice(0, 2); tl.forEach((l, i) => x.fillText(l, 64, 186 + i * 70));
+  x.fillStyle = "#2A2F3A"; x.font = '500 44px "Instrument Sans", system-ui, sans-serif';
+  const by = 186 + tl.length * 70 + 20;
+  const bl = wrap(x, text, 896); const max = Math.floor((600 - by) / 56);
+  bl.slice(0, max).forEach((l, i) => x.fillText(i === max - 1 && bl.length > max ? l + "…" : l, 64, by + i * 56));
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+  return t;
+}
+
+function std(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: .45, metalness: .05, flatShading: true, ...opts }); }
+function shadowy(o) { o.traverse(m => { if (m.isMesh) { m.castShadow = true; } }); return o; }
+
+function makeContent(d) {
+  const g = new THREE.Group();
+  let update = () => {};
+  const accent = new THREE.Color(cssVar("--accent") || "#E4511C");
+
+  if (d.kind === "model" && d.model === "beacon") {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(.2, .26, .08, 7), std(0x7C8391));
+    base.position.y = .04;
+    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.2, 0), std(accent, { emissive: accent.clone().multiplyScalar(.35), roughness: .2 }));
+    crystal.scale.y = 1.7;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(.34, .012, 8, 64), std(0xffffff, { emissive: 0x333333 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = .6;
+    g.add(base, crystal, ring);
+    update = t => { crystal.rotation.y = t * .9; crystal.position.y = .75 + Math.sin(t * 1.6) * .06; ring.rotation.z = -t * .5; ring.position.y = .75 + Math.sin(t * 1.6 + .6) * .05; };
+  } else if (d.kind === "model" && d.model === "balloon") {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(.26, 20, 16), std(0xE33B3B, { roughness: .3, flatShading: false }));
+    ball.scale.y = 1.18; ball.position.y = 1.45;
+    const knot = new THREE.Mesh(new THREE.ConeGeometry(.04, .07, 8), std(0xC22F2F)); knot.position.y = 1.13; knot.rotation.x = Math.PI;
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(.004, .004, 1.08, 4), std(0xEEEEEE)); string.position.y = .56;
+    const weight = new THREE.Mesh(new THREE.BoxGeometry(.09, .07, .09), std(0x4A4F5A)); weight.position.y = .035;
+    const top = new THREE.Group(); top.add(ball, knot, string);
+    g.add(top, weight);
+    update = t => { top.rotation.z = Math.sin(t * .9) * .06; top.rotation.x = Math.sin(t * .7 + 1) * .05; ball.position.y = 1.45 + Math.sin(t * 1.3) * .03; };
+  } else if (d.kind === "model" && d.model === "pine") {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.05, .07, .35, 6), std(0x7A4E2D)); trunk.position.y = .175;
+    const crown = new THREE.Group();
+    [[.42, .5, .55], [.33, .45, .85], [.22, .4, 1.12]].forEach(([r, h, y]) => { const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), std(0x2F7D4A)); c.position.y = y - .3; crown.add(c); });
+    crown.position.y = .3;
+    g.add(trunk, crown);
+    update = t => { crown.rotation.z = Math.sin(t * 1.1) * .035; crown.rotation.x = Math.sin(t * .8) * .02; };
+  } else if (d.kind === "model" && d.model === "portal") {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(.5, .06, 12, 48), std(0x2B2F38, { metalness: .4, roughness: .3 }));
+    ring.position.y = .62;
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(.45, 48), new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: .55, side: THREE.DoubleSide }));
+    disc.position.y = .62;
+    const orbs = new THREE.Group(); orbs.position.y = .62;
+    for (let i = 0; i < 6; i++) { const o = new THREE.Mesh(new THREE.SphereGeometry(.03, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff })); o.userData.a = i / 6 * Math.PI * 2; orbs.add(o); }
+    const feet = new THREE.Mesh(new THREE.BoxGeometry(.5, .05, .16), std(0x2B2F38)); feet.position.y = .025;
+    g.add(ring, disc, orbs, feet);
+    update = t => {
+      disc.material.opacity = .45 + Math.sin(t * 2.2) * .15;
+      orbs.children.forEach(o => { const a = o.userData.a + t * .9; o.position.set(Math.cos(a) * .5, Math.sin(a) * .5, Math.sin(a * 2) * .06); });
+    };
+  } else if (d.kind === "model") { // totem
+    const sizes = [[.42, 0xE0A100], [.32, accent], [.22, 0x2F6BFF]];
+    let y = 0; const blocks = sizes.map(([s, c]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), std(c)); y += s / 2; b.position.y = y; y += s / 2 + .01; g.add(b); return b; });
+    update = t => blocks.forEach((b, i) => b.rotation.y = t * (i % 2 ? -.6 : .4) + i);
+  } else {
+    let tex;
+    if (d.kind === "message") tex = cardTexture({ eyebrow: "Message", title: d.title, body: d.text, color: d.color });
+    else {
+      const p = d.points, b = S.me ? compass(bearing(p[0], p[1])) : "";
+      tex = cardTexture({ eyebrow: `Route · ${p.length} stops`, title: d.title, body: `${fmtDist(routeLength(p))} in total. From here, head ${b} for ${fmtDist(dist(p[0], p[1]))} to stop 2. The map shows the full line.`, color: cssVar("--accent") || "#E4511C" });
+    }
+    const board = new THREE.Group();
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(1.1, .6875), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+    card.position.y = 1.3; card.castShadow = true;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, .96, 6), std(0x9AA1AD)); post.position.y = .48;
+    board.add(card, post); g.add(board);
+    const tmp = new THREE.Vector3();
+    update = (t, cam) => { // turn to face the viewer on Y only
+      if (!cam) return;
+      tmp.setFromMatrixPosition(cam.matrixWorld); board.parent.worldToLocal(tmp);
+      const target = Math.atan2(tmp.x, tmp.z);
+      board.rotation.y += Math.atan2(Math.sin(target - board.rotation.y), Math.cos(target - board.rotation.y)) * .15;
+    };
+  }
+  shadowy(g);
+  return { obj: g, update };
+}
+
+function buildScene(d) {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a93a3, .95));
+  const root = new THREE.Group(); scene.add(root);
+  const sun = new THREE.DirectionalLight(0xffffff, .85);
+  sun.position.set(1.2, 3.5, 1.4); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -1.6, right: 1.6, top: 1.6, bottom: -1.6, near: .5, far: 8 });
+  sun.shadow.bias = -.0005;
+  root.add(sun); root.add(sun.target);
+  const catcher = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.ShadowMaterial({ opacity: .28 }));
+  catcher.rotation.x = -Math.PI / 2; catcher.receiveShadow = true; root.add(catcher);
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }));
+  blob.rotation.x = -Math.PI / 2; blob.position.y = .002; root.add(blob);
+  const inner = new THREE.Group(); root.add(inner);
+  const item = makeContent(d); inner.add(item.obj);
+  let spawnT = null;
+  return {
+    scene, root, inner,
+    spawn(t) { spawnT = t; },
+    update(t, cam) {
+      if (spawnT != null) {
+        const k = clamp((t - spawnT) / .45, 0, 1), e = 1 - Math.pow(1 - k, 3);
+        inner.scale.setScalar(.6 + .4 * e); inner.position.y = .08 * (1 - e); blob.material.opacity = e;
+        if (k >= 1) spawnT = null;
+      }
+      item.update(t, cam);
+    }
+  };
+}
+
+/* ---- WebXR: hit test + anchors. The object is pinned to the tracked floor. ---- */
+async function startXR(d) {
+  showAR(d, "xr"); hint("Point your phone at the ground in front of you");
+  let session;
+  try {
+    session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"], optionalFeatures: ["anchors", "dom-overlay", "local-floor"], domOverlay: { root: $("#ar") }
+    });
+  } catch (e) { closeAR(); toast("Couldn't start AR: " + e.message); return; }
+
+  const renderer = makeRenderer();
+  renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType("local");
+  await renderer.xr.setSession(session);
+  const built = buildScene(d); built.root.visible = false;
+  const cam = new THREE.PerspectiveCamera();
+  const reticle = new THREE.Mesh(new THREE.RingGeometry(.1, .13, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .9 }));
+  reticle.matrixAutoUpdate = false; reticle.visible = false; built.scene.add(reticle);
+
+  const viewer = await session.requestReferenceSpace("viewer");
+  const hitSource = await session.requestHitTestSource({ space: viewer });
+  let lastHit = null, stableSince = 0, anchor = null, placed = false;
+  const camPos = new THREE.Vector3();
+
+  function place(h, t) {
+    const p = h.pose.transform.position;
+    built.root.position.set(p.x, p.y, p.z);
+    built.root.rotation.set(0, Math.atan2(camPos.x - p.x, camPos.z - p.z), 0);
+    built.root.visible = true; built.spawn(t); placed = true; reticle.visible = false;
+    if (anchor?.delete) anchor.delete(); anchor = null;
+    if (h.result.createAnchor) {
+      h.result.createAnchor().then(a => { anchor = a; $("#arMode").textContent = "WebXR · anchored"; })
+        .catch(() => { $("#arMode").textContent = "WebXR · tracked"; });
+    } else $("#arMode").textContent = "WebXR · tracked";
+    hint("Walk around it. Tap the screen to move it.");
+  }
+  session.addEventListener("select", () => { if (lastHit) place(lastHit, performance.now() / 1000); });
+
+  renderer.setAnimationLoop((time, frame) => {
+    const t = time / 1000;
+    const xrCam = renderer.xr.getCamera(cam);
+    camPos.setFromMatrixPosition(xrCam.matrixWorld);
+    if (frame) {
+      const ref = renderer.xr.getReferenceSpace();
+      const hits = frame.getHitTestResults(hitSource);
+      if (hits.length) {
+        const pose = hits[0].getPose(ref);
+        if (pose) {
+          lastHit = { result: hits[0], pose };
+          reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = !placed;
+          if (!stableSince) stableSince = t;
+          if (!placed && t - stableSince > 1.2) place(lastHit, t);
+          if (!placed) hint("Hold steady…");
+        }
+      } else { stableSince = 0; reticle.visible = false; if (!placed) hint("Point your phone at the ground in front of you"); }
+      if (anchor && frame.trackedAnchors?.has(anchor)) {
+        const ap = frame.getPose(anchor.anchorSpace, ref);
+        if (ap) { const p = ap.transform.position; built.root.position.set(p.x, p.y, p.z); }
+      }
+    }
+    built.update(t, xrCam);
+    renderer.render(built.scene, cam);
+  });
+
+  let ended = false;
+  const cleanup = () => {
+    if (ended) return; ended = true;
+    renderer.setAnimationLoop(null); hitSource.cancel?.(); anchor?.delete?.(); renderer.dispose();
+  };
+  session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
+  AR.stop = () => { cleanup(); session.end().catch(() => {}); };
+}
+
+/* ---- Camera + device orientation (iPhone and others without WebXR). Rotation only. ---- */
+async function startCamera(d, permP) {
+  showAR(d, "camera"); hint("Starting camera…");
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }); }
+  catch (e) { return startViewer(d, "Camera is blocked or unavailable. Showing a 3D preview."); }
+  const perm = await permP;
+  const video = $("#arVideo"); video.srcObject = stream; video.hidden = false; video.play().catch(() => {});
+
+  const renderer = makeRenderer();
+  const built = buildScene(d); built.root.visible = false;
+  const cam = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, .05, 100);
+  const EYE = 1.45;
+  cam.position.set(0, EYE, 0);
+
+  const zee = new THREE.Vector3(0, 0, 1), euler = new THREE.Euler(), q0 = new THREE.Quaternion();
+  const q1 = new THREE.Quaternion(-Math.sqrt(.5), 0, 0, Math.sqrt(.5)), target = new THREE.Quaternion();
+  let ori = null, placed = false, raf = 0;
+  const onOri = e => { if (e.alpha != null) ori = e; };
+  if (perm === "granted") addEventListener("deviceorientation", onOri);
+
+  function place(t) {
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion); fwd.y = 0;
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1); fwd.normalize();
+    built.root.position.set(fwd.x * 2.5, 0, fwd.z * 2.5);
+    built.root.rotation.y = Math.atan2(-fwd.x, -fwd.z);
+    built.root.visible = true; built.spawn(t); placed = true;
+  }
+  const started = performance.now();
+  const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
+  addEventListener("resize", onResize);
+
+  const loop = () => {
+    raf = requestAnimationFrame(loop);
+    const t = performance.now() / 1000;
+    if (ori) {
+      const o = rad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+      euler.set(rad(ori.beta), rad(ori.alpha), -rad(ori.gamma), "YXZ");
+      target.setFromEuler(euler); target.multiply(q1); target.multiply(q0.setFromAxisAngle(zee, -o));
+      cam.quaternion.slerp(target, placed ? .35 : 1);
+      if (!placed) { place(t); hint("It's 2.5 m in front of you. Turn to look around. Walking needs WebXR."); }
+    } else if (!placed && performance.now() - started > 1500) {
+      place(t); hint(perm === "granted" ? "No motion data from this device. The object is fixed on screen." : "Motion access was declined. The object is fixed on screen.");
+    }
+    built.update(t, cam);
+    renderer.render(built.scene, cam);
+  };
+  loop();
+  AR.stop = () => {
+    cancelAnimationFrame(raf); removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize);
+    stream.getTracks().forEach(tr => tr.stop()); $("#arVideo").srcObject = null; renderer.dispose();
+  };
+}
+
+/* ---- 3D preview with drag to orbit (desktop) ---- */
+function startViewer(d, note) {
+  if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
+  $("#arStage").innerHTML = ""; $("#arVideo").hidden = true;
+  showAR(d, "viewer"); hint(note || "Drag to look around.");
+  const renderer = makeRenderer();
+  const built = buildScene(d);
+  built.scene.background = new THREE.Color(cssVar("--ar-bg") || "#DCE0E6");
+  const grid = new THREE.GridHelper(8, 16, 0x8892a0, 0x8892a0); grid.material.opacity = .25; grid.material.transparent = true; built.scene.add(grid);
+  const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .05, 100);
+  let yaw = .5, pitch = .28, R = 3.1, drag = null, raf = 0;
+  const aim = () => { cam.position.set(Math.sin(yaw) * Math.cos(pitch) * R, .7 + Math.sin(pitch) * R, Math.cos(yaw) * Math.cos(pitch) * R); cam.lookAt(0, .7, 0); };
+  const el = renderer.domElement; el.style.touchAction = "none";
+  el.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => { if (!drag) return; yaw -= (e.clientX - drag.x) * .008; pitch = clamp(pitch + (e.clientY - drag.y) * .006, -.05, 1.2); drag = { x: e.clientX, y: e.clientY }; });
+  el.addEventListener("pointerup", () => drag = null);
+  el.addEventListener("wheel", e => { R = clamp(R + e.deltaY * .003, 1.5, 7); e.preventDefault(); }, { passive: false });
+  const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
+  addEventListener("resize", onResize);
+  built.spawn(performance.now() / 1000);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = () => {
+    raf = requestAnimationFrame(loop);
+    if (!drag && !reduce) yaw += .0015;
+    aim(); const t = performance.now() / 1000; built.update(t, cam); renderer.render(built.scene, cam);
+  };
+  loop();
+  AR.stop = () => { cancelAnimationFrame(raf); removeEventListener("resize", onResize); renderer.dispose(); };
+}
+
+/* ---------- boot ---------- */
+importFromHash();
+renderList();
+setSheetHeight();
+startGeo();
+</script>
+</body>
+</html>
