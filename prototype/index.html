@@ -493,7 +493,7 @@ function densify(points, step) {
 }
 const profileJobs = new Map();
 /* The line a route actually follows: walkway geometry between stops when we have it, else straight legs. */
-const routeBase = d => d.walk !== false && d.path && d.path.length > 1 ? d.path : d.points.map((p, i) => ({ lat: p.lat, lng: p.lng, wp: i }));
+const routeBase = d => (d.drawn || d.walk !== false) && d.path && d.path.length > 1 ? d.path : d.points.map((p, i) => ({ lat: p.lat, lng: p.lng, wp: i }));
 /* Free OpenStreetMap foot routing (FOSSGIS). Each leg follows paths and sidewalks around buildings. */
 const walkJobs = new Map();
 async function fetchWalk(d) {
@@ -599,17 +599,23 @@ function wireDrag(m, d, ring, line) {
   m.on("dragend", () => {
     const ll = m.getLatLng(), dLat = ll.lat - from.lat, dLng = ll.lng - from.lng;
     d.lat = ll.lat; d.lng = ll.lng;
-    if (d.kind === "route") { d.points = from.points.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng })); d.path = null; d.profile = null; computeProfile(d); fetchWalk(d); }
+    if (d.kind === "route") {
+      d.points = from.points.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng })); d.profile = null;
+      if (d.drawn) d.path = from.path.map(p => ({ ...p, lat: p.lat + dLat, lng: p.lng + dLng })); else { d.path = null; fetchWalk(d); }
+      computeProfile(d);
+    }
     finishMove(d, from, `${d.title} moved ${fmtDist(dist(from, d))}`);
   });
 }
 function wireWaypointDrag(h, d, i, ring, line) {
   let from = null;
   h.on("dragstart", () => { S.dragging = true; from = snapshot(d); });
-  h.on("drag", () => { const ll = h.getLatLng(); line.setLatLngs(d.points.map((p, k) => k === i ? ll : [p.lat, p.lng])); if (i === 0) ring.setLatLng(ll); });
+  h.on("drag", () => { const ll = h.getLatLng(); line.setLatLngs(d.drawn ? d.path.map(p => p.wp === i ? ll : [p.lat, p.lng]) : d.points.map((p, k) => k === i ? ll : [p.lat, p.lng])); if (i === 0) ring.setLatLng(ll); });
   h.on("dragend", () => {
     const ll = h.getLatLng(); d.points[i] = { lat: ll.lat, lng: ll.lng };
-    d.lat = d.points[0].lat; d.lng = d.points[0].lng; d.path = null; d.profile = null; computeProfile(d); fetchWalk(d);
+    d.lat = d.points[0].lat; d.lng = d.points[0].lng; d.profile = null;
+    if (d.drawn) { const k = d.path.findIndex(p => p.wp === i); if (k >= 0) d.path[k] = { lat: ll.lat, lng: ll.lng, wp: i }; } else { d.path = null; fetchWalk(d); }
+    computeProfile(d);
     finishMove(d, from, `Stop ${i + 1} moved`);
   });
 }
@@ -754,7 +760,7 @@ function renderDetail() {
       <div><dt>${d.kind === "route" ? "Length" : "Position"}</dt><dd>${d.kind === "route" ? fmtDist(routeLength(routeBase(d))) + " · " + d.points.length + " stops" : fmtCoord(d)}</dd></div>
     </dl>
     ${d.kind === "route" ? profileBlock(d) : ""}
-    ${d.kind === "route" ? `<div class="btn-row" style="margin-bottom:8px"><button class="btn grow" data-act="walk" type="button" aria-pressed="${d.walk !== false}">${d.walk !== false ? (d.path ? "Follows walkways · tap for straight" : "Finding walkways…") : "Straight lines · tap for walkways"}</button></div>` : ""}
+    ${d.kind === "route" && !d.drawn ? `<div class="btn-row" style="margin-bottom:8px"><button class="btn grow" data-act="walk" type="button" aria-pressed="${d.walk !== false}">${d.walk !== false ? (d.path ? "Follows walkways · tap for straight" : "Finding walkways…") : "Straight lines · tap for walkways"}</button></div>` : ""}
     <div class="btn-row">
       <button class="btn primary grow" data-act="open" type="button" ${inR ? "" : "disabled"}>${inR ? "Open in AR" : "Move " + fmtDist(away) + " closer"}</button>
       ${inR ? "" : '<button class="btn" data-act="preview" type="button">Preview</button>'}
@@ -787,7 +793,7 @@ function renderAbout() {
 /* ================= compose ================= */
 function startCompose() {
   S.selected = null;
-  S.draft = { kind: "model", model: "fox", title: "", text: "", color: COLORS[0], radius: 30, points: [] };
+  S.draft = { kind: "model", model: "fox", title: "", text: "", color: COLORS[0], radius: 30, points: [], how: "draw", stroke: [], marks: [], pan: false };
   S.view = "compose"; setPanel(true); renderCompose(); renderPins();
   // start the crosshair on you, so the default drop lands where you stand
   requestAnimationFrame(() => { if (S.me && map.getBounds().contains([S.me.lat, S.me.lng])) focusOn(S.me); drawDraft(); });
@@ -803,15 +809,20 @@ function renderCompose() {
       <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>` : ""}
     ${d.kind === "message" ? `<div class="field"><label class="label" for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they arrive?">${esc(d.text)}</textarea></div>
       <div class="field"><span class="label">Accent</span><div class="swatches">${COLORS.map(c => `<button type="button" class="swatch" data-act="color" data-c="${c}" aria-label="Accent ${c}" aria-pressed="${d.color === c}" style="background:${c}"></button>`).join("")}</div></div>` : ""}
-    ${d.kind === "route" ? `<div class="btn-row" style="margin-top:4px"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
-      <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>` : ""}
+    ${d.kind === "route" ? `<div class="seg" role="group" aria-label="How to make the route" style="grid-template-columns:repeat(2,1fr);margin-top:0">
+        <button type="button" data-act="how" data-k="draw" aria-pressed="${d.how === "draw"}">Draw with finger</button><button type="button" data-act="how" data-k="stops" aria-pressed="${d.how === "stops"}">Drop stops</button></div>
+      ${d.how === "draw" ? `<div class="btn-row"><button class="btn grow" data-act="pan" type="button" aria-pressed="${d.pan}">${d.pan ? "Back to drawing" : "Move map"}</button><button class="btn" data-act="undo" type="button">Undo</button><button class="btn" data-act="clear" type="button">Clear</button></div>
+        <p class="note" id="cStops">Trace the route on the map with one finger. Lift and start again from the end to keep going.</p>`
+      : `<div class="btn-row"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
+        <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
     <div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
     <div class="field"><label class="label" for="cRadius">Opens within</label><div class="range"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} M</span></div></div>
     <button class="btn ${d.kind === "route" ? "" : "primary"}" style="width:100%" data-act="save" type="button">${d.kind === "route" ? "Save route" : "Place drop here"}</button>`;
   $("#cTitle").addEventListener("input", e => d.title = e.target.value);
   $("#cRadius").addEventListener("input", e => { d.radius = +e.target.value; $("#cRadiusV").textContent = d.radius + " M"; drawDraft(); });
   $("#cText")?.addEventListener("input", e => d.text = e.target.value);
-  $("#dropBtn").hidden = true; $("#cross").hidden = false; summary(); resetScroll("c:" + d.kind);
+  $("#dropBtn").hidden = true; $("#cross").hidden = d.kind === "route" && d.how === "draw"; summary(); resetScroll("c:" + d.kind);
+  setDrawing(d.kind === "route" && d.how === "draw" && !d.pan);
   requestAnimationFrame(() => { measure(); drawDraft(); });
 }
 function crossPoint() {
@@ -831,7 +842,14 @@ function drawDraft() {
   draftLayer.clearLayers();
   if (S.view !== "compose" || !S.draft) return;
   const d = S.draft, c = draftCenter();
-  if (d.kind === "route") {
+  if (d.kind === "route" && d.how === "draw") {
+    if (d.stroke.length > 1) {
+      L.polyline(d.stroke.map(p => [p.lat, p.lng]), { color: C.amber, weight: 3, interactive: false }).addTo(draftLayer);
+      chevronsFor(d.stroke, draftLayer, C.amber);
+      L.circle([d.stroke[0].lat, d.stroke[0].lng], { radius: d.radius, color: C.amber, weight: 1, fillOpacity: .04, dashArray: "2 6", interactive: false }).addTo(draftLayer);
+      stopsFromStroke(d.stroke).forEach((p, i) => L.marker([p.lat, p.lng], { interactive: false, icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: `<div class="wp">${i + 1}</div>` }) }).addTo(draftLayer));
+    }
+  } else if (d.kind === "route") {
     if (d.points.length) {
       L.polyline(d.points.map(p => [p.lat, p.lng]), { color: C.amber, weight: 2.5, interactive: false }).addTo(draftLayer);
       chevronsFor(d.points, draftLayer, C.amber);
@@ -846,23 +864,99 @@ function drawDraft() {
 function updateComposeLive() {
   if (S.view !== "compose") return;
   const d = S.draft, c = draftCenter(), el = $("#cPos"); if (!el) return;
-  if (d.kind === "route") {
+  if (d.kind === "route" && d.how === "draw") {
+    const len = routeLength(d.stroke), n = d.stroke.length > 1 ? stopsFromStroke(d.stroke).length : 0;
+    el.textContent = len ? fmtDist(len) + " drawn" : "Draw on the map";
+    const s2 = $("#cStops"); if (s2 && len) s2.textContent = `${fmtDist(len)} · ${n} stops placed at the start, end and sharp turns. Lift and start again from the end to keep going.`;
+  } else if (d.kind === "route") {
     const last = d.points.at(-1);
     el.textContent = last ? "Next leg " + fmtDist(dist(last, c)) + " · " + fmtBrg(bearing(last, c)) : fmtCoord(c);
     const s = $("#cStops"); if (s) s.textContent = d.points.length ? `${d.points.length} stops · ${fmtDist(routeLength(d.points))}. The dashed line previews the next leg.` : "Aim the crosshair and add stops, or tap the map.";
   } else el.textContent = S.me ? fmtDist(dist(S.me, c)) + " · " + fmtBrg(bearing(S.me, c)) : fmtCoord(c);
 }
 function addWaypoint(p) { S.draft.points.push(p); drawDraft(); }
+/* ---------- finger drawing ---------- */
+// Douglas-Peucker in metres (local flat projection is fine at route scale)
+function simplify(pts, tol) {
+  if (pts.length < 3) return pts.map((p, i) => i);
+  const o = pts[0], k = Math.cos(rad(o.lat)) * 111320, P = pts.map(p => ({ x: (p.lng - o.lng) * k, y: (p.lat - o.lat) * 110540 }));
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+  const st = [[0, pts.length - 1]];
+  while (st.length) {
+    const [a, b] = st.pop(); let best = -1, bd = tol;
+    const ax = P[a].x, ay = P[a].y, dx = P[b].x - ax, dy = P[b].y - ay, l2 = dx * dx + dy * dy || 1e-9;
+    for (let i = a + 1; i < b; i++) { const t = clamp(((P[i].x - ax) * dx + (P[i].y - ay) * dy) / l2, 0, 1), dd = Math.hypot(P[i].x - ax - t * dx, P[i].y - ay - t * dy); if (dd > bd) { bd = dd; best = i; } }
+    if (best > 0) { keep[best] = 1; st.push([a, best], [best, b]); }
+  }
+  const out = []; keep.forEach((v, i) => v && out.push(i)); return out;
+}
+// stops go at the start, the end, sharp turns, and at least every 120 m
+function stopIdx(stroke) {
+  const corners = simplify(stroke, 6), out = [0];
+  for (let j = 1; j < corners.length - 1; j++) {
+    const a = stroke[corners[j - 1]], b = stroke[corners[j]], c = stroke[corners[j + 1]];
+    const turn = Math.abs(((bearing(b, c) - bearing(a, b) + 540) % 360) - 180);
+    if (turn > 35 && dist(stroke[out.at(-1)], b) > 20) out.push(corners[j]);
+  }
+  out.push(stroke.length - 1);
+  const filled = [out[0]];
+  for (let j = 1; j < out.length; j++) {
+    let prev = filled.at(-1), acc = 0;
+    for (let i = prev + 1; i < out[j]; i++) { acc += dist(stroke[i - 1], stroke[i]); if (acc > 120) { filled.push(i); acc = 0; } }
+    if (dist(stroke[filled.at(-1)], stroke[out[j]]) > 8 || j === out.length - 1) filled.push(out[j]);
+  }
+  return [...new Set(filled)].sort((a, b) => a - b);
+}
+const stopsFromStroke = stroke => stopIdx(stroke).map(i => stroke[i]);
+function routeFromStroke(raw) {
+  const stroke = simplify(raw, .25).map(i => raw[i]); // drop finger jitter, keep the shape
+  const idx = stopIdx(stroke), points = idx.map(i => ({ lat: stroke[i].lat, lng: stroke[i].lng }));
+  const path = stroke.map((p, i) => ({ lat: p.lat, lng: p.lng, wp: idx.includes(i) ? idx.indexOf(i) : null }));
+  return { points, path, drawn: true, walk: false };
+}
+const Draw = { on: false, id: null, last: null, ptrs: new Set() };
+function setDrawing(on) {
+  Draw.on = on; if (on) map.dragging.disable(); else map.dragging.enable();
+  $("#map").style.cursor = on ? "crosshair" : "";
+}
+(() => {
+  const el = $("#map");
+  const ll = e => { const r2 = el.getBoundingClientRect(); const c = map.containerPointToLatLng([e.clientX - r2.left, e.clientY - r2.top]); return { lat: c.lat, lng: c.lng }; };
+  el.addEventListener("pointerdown", e => {
+    Draw.ptrs.add(e.pointerId);
+    if (!Draw.on || e.target.closest(".leaflet-marker-icon, .leaflet-control")) return;
+    if (Draw.ptrs.size > 1) { if (Draw.id != null) { S.draft.stroke.length = S.draft.marks.pop() ?? 0; Draw.id = null; drawDraft(); } return; } // two fingers: leave it to pinch zoom
+    const d = S.draft, p = ll(e);
+    // start near the end of the last line? keep going; otherwise start a fresh line
+    const endPx = d.stroke.length ? map.latLngToContainerPoint([d.stroke.at(-1).lat, d.stroke.at(-1).lng]) : null, r2 = el.getBoundingClientRect();
+    if (endPx && Math.hypot(endPx.x - (e.clientX - r2.left), endPx.y - (e.clientY - r2.top)) > 40) { d.stroke = []; d.marks = []; }
+    d.marks.push(d.stroke.length); d.stroke.push(p);
+    Draw.id = e.pointerId; Draw.last = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId);
+    e.preventDefault(); e.stopPropagation(); drawDraft();
+  }, true);
+  el.addEventListener("pointermove", e => {
+    if (!Draw.on || e.pointerId !== Draw.id) return;
+    if (Math.hypot(e.clientX - Draw.last.x, e.clientY - Draw.last.y) < 3) return;
+    Draw.last = { x: e.clientX, y: e.clientY }; S.draft.stroke.push(ll(e));
+    e.preventDefault(); e.stopPropagation();
+    if (!Draw.raf) Draw.raf = requestAnimationFrame(() => { Draw.raf = 0; drawDraft(); });
+  }, true);
+  const up = e => { Draw.ptrs.delete(e.pointerId); if (e.pointerId === Draw.id) { Draw.id = null; drawDraft(); } };
+  el.addEventListener("pointerup", up, true); el.addEventListener("pointercancel", up, true);
+})();
 function saveDraft() {
   const d = S.draft; let loc, extra = {};
-  if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
+  if (d.kind === "route" && d.how === "draw") {
+    if (routeLength(d.stroke) < 10) return toast("Draw a longer line on the map first.");
+    const built = routeFromStroke(d.stroke); loc = built.points[0]; Object.assign(extra, built);
+  } else if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
   else loc = draftCenter();
   if (d.kind === "message") { if (!d.text.trim()) return toast("Write a message first."); extra.text = d.text.trim(); extra.color = d.color; }
   if (d.kind === "model") extra.model = d.model;
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
-  S.drops.push(drop); save(); if (drop.kind === "route") { computeProfile(drop); fetchWalk(drop); }
-  S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers();
+  S.drops.push(drop); save(); if (drop.kind === "route") { computeProfile(drop); if (!drop.drawn) fetchWalk(drop); }
+  S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers(); setDrawing(false);
   toast("Placed. Opens within " + drop.radius + " m.");
   select(drop.id);
 }
@@ -897,13 +991,16 @@ body.addEventListener("click", e => {
     if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "Tap again"; return; }
     const old = S.drops; S.drops = []; save(); renderList(); renderPins(); toast("All drops cleared", "Undo", () => { S.drops = old; save(); renderPins(); refreshPanel(); });
   }
-  else if (a === "cancel") { S.draft = null; $("#cross").hidden = true; draftLayer.clearLayers(); renderList(); }
+  else if (a === "cancel") { S.draft = null; $("#cross").hidden = true; draftLayer.clearLayers(); setDrawing(false); renderList(); }
+  else if (a === "how") { S.draft.how = b.dataset.k; S.draft.pan = false; renderCompose(); }
+  else if (a === "pan") { S.draft.pan = !S.draft.pan; renderCompose(); }
+  else if (a === "clear") { S.draft.stroke = []; S.draft.marks = []; drawDraft(); }
   else if (a === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
   else if (a === "obj") { S.draft.model = b.dataset.k; body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
   else if (a === "walk") { const d = byId(S.selected); d.walk = d.walk === false; d.profile = null; save(); computeProfile(d); if (d.walk && !d.path) fetchWalk(d); renderPins(); renderDetail(); }
-  else if (a === "undo") { S.draft.points.pop(); drawDraft(); }
+  else if (a === "undo") { if (S.draft.how === "draw") { S.draft.stroke.length = S.draft.marks.pop() ?? 0; } else S.draft.points.pop(); drawDraft(); }
   else if (a === "save") saveDraft();
 });
 $("#dropBtn").addEventListener("click", startCompose);
@@ -925,7 +1022,7 @@ $("#btnShow").addEventListener("click", () => setUI(true));
 addEventListener("keydown", e => { if (e.key.toLowerCase() === "h" && !/input|textarea/i.test(e.target.tagName) && $("#ar").hidden) setUI(document.body.classList.contains("ui-off")); });
 
 map.on("click", e => {
-  if (S.view === "compose" && S.draft.kind === "route") return addWaypoint({ lat: e.latlng.lat, lng: e.latlng.lng });
+  if (S.view === "compose" && S.draft.kind === "route") { if (S.draft.how === "stops") addWaypoint({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (S.view === "compose") return;
   if (S.sim) setMe({ lat: e.latlng.lat, lng: e.latlng.lng, acc: 0 });
 });
@@ -936,7 +1033,7 @@ const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").repl
 const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
 function shareDrop(id) {
   const d = byId(id); if (!d) return;
-  const { sample, shared, profile, ...clean } = d;
+  const { sample, shared, profile, ...clean } = d; if (!clean.drawn) delete clean.path;
   const url = location.href.split("#")[0] + "#drop=" + b64e(JSON.stringify(clean));
   const done = () => toast("Share link copied");
   if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done)); else fallbackCopy(url, done);
@@ -952,14 +1049,17 @@ function sanitize(d) {
     radius: clamp(num(d.radius) ? d.radius : 30, 10, 200), lat: clamp(d.lat, -90, 90), lng: clamp(d.lng, -180, 180), shared: true };
   if (d.kind === "model") o.model = MODELS3D[d.model] || OBJECTS[d.model] ? d.model : "marker";
   if (d.kind === "message") { o.text = String(d.text || "").slice(0, 280); o.color = /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : COLORS[0]; }
-  if (d.kind === "route") { o.points = (Array.isArray(d.points) ? d.points : []).filter(p => p && num(p.lat) && num(p.lng)).slice(0, 50).map(p => ({ lat: p.lat, lng: p.lng })); if (o.points.length < 2) return null; }
+  if (d.kind === "route") {
+    o.points = (Array.isArray(d.points) ? d.points : []).filter(p => p && num(p.lat) && num(p.lng)).slice(0, 50).map(p => ({ lat: p.lat, lng: p.lng })); if (o.points.length < 2) return null;
+    if (d.drawn && Array.isArray(d.path)) { o.drawn = true; o.path = d.path.filter(p => p && num(p.lat) && num(p.lng)).slice(0, 1500).map(p => ({ lat: p.lat, lng: p.lng, wp: Number.isInteger(p.wp) && p.wp >= 0 && p.wp < o.points.length ? p.wp : null })); }
+  }
   return o;
 }
 function importFromHash() {
   const m = location.hash.match(/^#drop=([A-Za-z0-9_-]+)$/); if (!m) return;
   try {
     const d = sanitize(JSON.parse(b64d(m[1]))); if (!d) throw 0;
-    if (!byId(d.id)) { S.drops.push(d); save(); if (d.kind === "route") { computeProfile(d); fetchWalk(d); } }
+    if (!byId(d.id)) { S.drops.push(d); save(); if (d.kind === "route") { computeProfile(d); if (!d.drawn) fetchWalk(d); } }
     S.pendingSelect = d.id; toast("Shared drop received: " + d.title);
   } catch (e) { toast("That share link is damaged."); }
   history.replaceState(null, "", location.pathname + location.search);
@@ -1981,7 +2081,7 @@ setPanel(wide());
 renderList();
 startGeo();
 S.drops.filter(d => d.kind === "route" && !d.profile).forEach(computeProfile);
-S.drops.filter(d => d.kind === "route" && d.walk !== false && !d.path).forEach(fetchWalk);
+S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.path).forEach(fetchWalk);
 </script>
 </body>
 </html>
