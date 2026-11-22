@@ -6,6 +6,12 @@
 <title>Layr</title>
 <meta name="description" content="Place digital markers, messages and routes in real places. Walk there and open them in AR.">
 <meta name="theme-color" content="#07090B">
+<script>
+  // pick the theme before first paint: saved choice, else the system setting
+  (function () { var t; try { t = localStorage.getItem("layr.theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t; })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
@@ -14,6 +20,29 @@
 /* Layout: full-bleed dark map with a thin HUD. Status top-left, tool rail top-right,
    one panel that collapses to a bar on phones and docks left on wide screens. */
 :root {
+  --bg: #EEF0F2;
+  --panel: rgba(255, 255, 255, .92);
+  --panel-solid: #FFFFFF;
+  --raise: #F1F3F5;
+  --line: #D6DADF;
+  --line-2: #AEB5BD;
+  --text: #11151A;
+  --muted: #59626C;
+  --dim: #87909A;
+  --amber: #B87000;
+  --amber-bg: #F2A20C;
+  --amber-ink: #160E00;
+  --cyan: #0A7FB0;
+  --ok: #0F7A45;
+  --danger: #C2342A;
+  --scene-bg: #E9ECEF;
+  --scene-grid: #B9C0C8;
+  --scene-grid-2: #D9DDE2;
+  --font-ui: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
   --bg: #07090B;
   --panel: rgba(10, 12, 15, .9);
   --panel-solid: #0C0F12;
@@ -24,12 +53,14 @@
   --muted: #8A919A;
   --dim: #5A616A;
   --amber: #FFB020;
+  --amber-bg: #FFB020;
   --amber-ink: #120C00;
   --cyan: #4CC9F0;
   --ok: #5BE38C;
   --danger: #FF5A4E;
-  --font-ui: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --scene-bg: #07090B;
+  --scene-grid: #3A414A;
+  --scene-grid-2: #1A1F25;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -64,9 +95,11 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* Map */
 #map { position: absolute; inset: 0; background: var(--bg); }
 .leaflet-container { background: var(--bg); font: 11px var(--font-mono); }
-.tiles-map .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(.72) contrast(1.18); }
-.tiles-sat .leaflet-tile-pane { filter: brightness(.62) saturate(.5) contrast(1.12); }
-.leaflet-control-attribution { background: rgba(7, 9, 11, .7) !important; color: var(--dim) !important; font: 9.5px var(--font-mono) !important; }
+.tiles-map .leaflet-tile-pane { filter: grayscale(1) brightness(1.03) contrast(.9); }
+.tiles-sat .leaflet-tile-pane { filter: saturate(.75) contrast(1.02); }
+:root[data-theme="dark"] .tiles-map .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(.72) contrast(1.18); }
+:root[data-theme="dark"] .tiles-sat .leaflet-tile-pane { filter: brightness(.62) saturate(.5) contrast(1.12); }
+.leaflet-control-attribution { background: var(--panel) !important; color: var(--dim) !important; font: 9.5px var(--font-mono) !important; }
 .leaflet-control-attribution a { color: var(--muted) !important; }
 .leaflet-bottom.leaflet-right { bottom: var(--panel-h, 52px); }
 
@@ -99,9 +132,9 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 /* Drop button */
 .drop-btn {
   position: fixed; z-index: 470; right: max(10px, env(safe-area-inset-right, 0px));
-  bottom: calc(var(--panel-h, 56px) + 12px);
+  bottom: calc(var(--panel-h, 56px) + 24px);
   height: 46px; padding: 0 18px; display: flex; align-items: center; gap: 10px;
-  background: var(--amber); color: var(--amber-ink); font: 600 12px/1 var(--font-mono); letter-spacing: .16em;
+  background: var(--amber-bg); color: var(--amber-ink); font: 600 12px/1 var(--font-mono); letter-spacing: .16em;
 }
 .drop-btn svg { width: 14px; height: 14px; }
 
@@ -152,8 +185,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .tag.in { border-color: var(--ok); color: var(--ok); }
 .empty { color: var(--muted); padding: 8px 0; }
 
-.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 14px 0; }
-.stats div { background: var(--panel-solid); padding: 9px 10px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin: 14px 0; }
+.stats div { background: var(--panel-solid); padding: 9px 10px; min-width: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .stats dt { font: 500 9.5px/1 var(--font-mono); letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
 .stats dd { margin: 6px 0 0; font: 500 13px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .stats dd.in { color: var(--ok); }
@@ -161,11 +194,14 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 
 .prof { display: block; width: 100%; height: 64px; }
 .prof-wrap { border: 1px solid var(--line); padding: 8px 10px 6px; margin: 0 0 12px; }
+.prof .wpl { stroke: var(--line-2); }
+.prof .area { fill: var(--amber); fill-opacity: .1; }
+.prof .ln { stroke: var(--amber); }
 .prof-meta { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 
 .btn { height: 44px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line-2); font: 600 11.5px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; }
 .btn svg { width: 15px; height: 15px; }
-.btn.primary { background: var(--amber); color: var(--amber-ink); border-color: var(--amber); }
+.btn.primary { background: var(--amber-bg); color: var(--amber-ink); border-color: var(--amber-bg); }
 .btn.primary:disabled { background: transparent; color: var(--dim); border-color: var(--line); cursor: not-allowed; }
 .btn.danger { color: var(--danger); }
 .btn.armed { background: var(--danger); color: #000; border-color: var(--danger); }
@@ -178,17 +214,18 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); margin: 12px 0; }
 .seg button { height: 36px; font: 600 10.5px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); border-left: 1px solid var(--line); }
 .seg button:first-child { border-left: 0; }
-.seg button[aria-pressed="true"] { color: var(--amber-ink); background: var(--amber); }
-.objs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
-.obj { background: var(--panel-solid); padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--muted); }
+.seg button[aria-pressed="true"] { color: var(--amber-ink); background: var(--amber-bg); }
+.objs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.obj { background: var(--panel-solid); padding: 10px 6px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--muted); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); position: relative; min-width: 0; }
 .obj svg { width: 26px; height: 26px; }
-.obj span { font: 500 9.5px/1.1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; text-align: center; }
-.obj[aria-pressed="true"] { color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.obj span { font: 500 9.5px/1.15 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; text-align: center; min-height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+.obj[aria-pressed="true"] { color: var(--amber); }
+.obj[aria-pressed="true"]::after { content: ""; position: absolute; inset: -1px; border: 1px solid var(--amber); pointer-events: none; z-index: 1; }
 .objs.models { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .obj img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--raise); }
-.obj.m { padding: 0 0 8px; }
+.obj.m { padding: 0; gap: 0; }
 .pick-head { display: flex; justify-content: space-between; margin: 14px 0 6px; }
-.thumb { width: 100%; max-width: 100%; height: 150px; object-fit: contain; background: #000 !important; display: block; border: 1px solid var(--line); background: var(--raise); margin: 10px 0 0; }
+.thumb { width: 100%; max-width: 100%; height: 150px; object-fit: contain; background: var(--raise) !important; display: block; border: 1px solid var(--line); background: var(--raise); margin: 10px 0 0; }
 .field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .field input[type="text"], .field textarea { width: 100%; background: var(--panel-solid); border: 1px solid var(--line); padding: 10px 11px; font-size: 16px; border-radius: 0; }
 .field textarea { min-height: 76px; resize: vertical; }
@@ -204,12 +241,13 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .pin svg { width: 28px; height: 28px; overflow: visible; }
 .pin.in { color: var(--ok); }
 .pin.sel { color: var(--text); }
-.pin.sel svg .fill { fill: var(--amber); fill-opacity: 1; }
-.me { width: 18px; height: 18px; border: 1.5px solid var(--cyan); border-radius: 50%; display: grid; place-items: center; box-shadow: 0 0 0 4px rgba(76, 201, 240, .14); }
+.pin svg .fill { fill: var(--panel-solid); fill-opacity: .85; }
+.pin.sel svg .fill { fill: var(--amber-bg); fill-opacity: 1; }
+.me { width: 18px; height: 18px; border: 1.5px solid var(--cyan); border-radius: 50%; display: grid; place-items: center; box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 16%, transparent); background: var(--panel-solid); }
 .me::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
 .me.sim { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 176, 32, .14); }
 .me.sim::after { background: var(--amber); }
-.wp { width: 22px; height: 22px; display: grid; place-items: center; background: var(--bg); border: 1px solid var(--amber); color: var(--amber); font: 600 10px/1 var(--font-mono); }
+.wp { width: 22px; height: 22px; display: grid; place-items: center; background: var(--panel-solid); border: 1px solid var(--amber); color: var(--amber); font: 600 10px/1 var(--font-mono); }
 .chevron { width: 14px; height: 14px; display: block; }
 .leaflet-marker-draggable { cursor: grab; }
 
@@ -238,6 +276,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-ctl { display: flex; align-items: stretch; max-width: 100%; }
 .ar-ctl button { width: 46px; height: 44px; display: grid; place-items: center; font: 600 16px/1 var(--font-mono); border-left: 1px solid var(--line); }
 .ar-ctl button:first-child { border-left: 0; }
+.ar-ctl .val .label { white-space: nowrap; }
 .ar-ctl .val { padding: 0 12px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-left: 1px solid var(--line); min-width: 108px; }
 .ar-ctl .val b { font: 600 13px/1 var(--font-mono); white-space: nowrap; }
 .ar-ctl .wide { width: auto; padding: 0 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
@@ -251,7 +290,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 
 <header class="hud-top">
   <div class="brand frame" aria-label="Layr">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M8 1.5 14.5 5 8 8.5 1.5 5 8 1.5Z" stroke="#FFB020"/><path d="m1.5 8 6.5 3.5L14.5 8"/><path d="m1.5 11 6.5 3.5 6.5-3.5" opacity=".5"/></svg>
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M8 1.5 14.5 5 8 8.5 1.5 5 8 1.5Z" style="stroke:var(--amber)"/><path d="m1.5 8 6.5 3.5L14.5 8"/><path d="m1.5 11 6.5 3.5 6.5-3.5" opacity=".5"/></svg>
     LAYR
   </div>
   <button class="readout frame" id="locChip" type="button" aria-label="Location source. Tap to switch between GPS and simulated.">
@@ -264,6 +303,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
   <button id="btnLocate" type="button" aria-label="Center on my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
   <button id="btnFit" type="button" aria-label="Show all drops"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
   <button id="btnLayer" type="button" aria-label="Switch map imagery"><span class="txt" id="layerLbl">MAP</span></button>
+  <button id="btnTheme" type="button" aria-label="Switch between light and dark mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/></svg></button>
   <button id="btnInfo" type="button" aria-label="About this prototype"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
   <button id="btnHide" type="button" aria-label="Hide interface and show the full map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/><path d="M4 20 20 4"/></svg></button>
 </nav>
@@ -272,7 +312,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 <button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v12M1 7h12"/></svg>DROP</button>
 
 <div class="cross" id="cross" hidden aria-hidden="true">
-  <svg viewBox="0 0 64 64" fill="none" stroke="#FFB020" stroke-width="1.2"><circle cx="32" cy="32" r="13"/><path d="M32 6v14M32 44v14M6 32h14M44 32h14"/><circle cx="32" cy="32" r="1.6" fill="#FFB020" stroke="none"/></svg>
+  <svg viewBox="0 0 64 64" fill="none" style="stroke:var(--amber)" stroke-width="1.2"><circle cx="32" cy="32" r="13"/><path d="M32 6v14M32 44v14M6 32h14M44 32h14"/><circle cx="32" cy="32" r="1.6" style="fill:var(--amber);stroke:none"/></svg>
 </div>
 
 <section class="panel frame" id="panel" aria-live="polite">
@@ -299,6 +339,11 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <div class="val"><span class="label">Line height</span><b id="aglVal">0.6 M</b></div>
         <button type="button" id="aglUp" aria-label="Raise the line">+</button>
         <button type="button" class="wide" id="arRealign">Realign</button>
+      </div>
+      <div class="ar-ctl frame" id="arHdgCtl" hidden>
+        <button type="button" id="rotL" aria-label="Turn the route left 3 degrees">⟲</button>
+        <div class="val"><span class="label" id="hdgSrc">Heading</span><b id="hdgVal">---°</b></div>
+        <button type="button" id="rotR" aria-label="Turn the route right 3 degrees">⟳</button>
       </div>
       <div class="ar-hint frame" id="arHint">Starting</div>
     </div>
@@ -378,9 +423,9 @@ const KIND_ICON = {
   route: '<svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="5" cy="17" r="2"/><circle cx="17" cy="5" r="2"/><path d="M7 17h6a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6"/></svg>'
 };
 const PIN_SVG = {
-  model: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><path class="fill" fill="#07090B" fill-opacity=".75" d="M14 3 25 14 14 25 3 14 14 3Z"/><circle cx="14" cy="14" r="2.2" fill="currentColor" stroke="none"/></svg>',
-  message: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><path class="fill" fill="#07090B" fill-opacity=".75" d="M4 5h20v14H13l-5 4v-4H4V5Z"/><path d="M8.5 10h11M8.5 14h7"/></svg>',
-  route: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><circle class="fill" fill="#07090B" fill-opacity=".75" cx="14" cy="14" r="10"/><circle cx="14" cy="14" r="3.2" fill="currentColor" stroke="none"/></svg>'
+  model: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><path class="fill" d="M14 3 25 14 14 25 3 14 14 3Z"/><circle cx="14" cy="14" r="2.2" fill="currentColor" stroke="none"/></svg>',
+  message: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><path class="fill" d="M4 5h20v14H13l-5 4v-4H4V5Z"/><path d="M8.5 10h11M8.5 14h7"/></svg>',
+  route: '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6"><circle class="fill" cx="14" cy="14" r="10"/><circle cx="14" cy="14" r="3.2" fill="currentColor" stroke="none"/></svg>'
 };
 const DEFAULT_LOC = { lat: 38.88947, lng: -77.03524 };
 
@@ -467,7 +512,15 @@ $("#btnLayer").addEventListener("click", () => {
 const dropLayer = L.layerGroup().addTo(map);
 const draftLayer = L.layerGroup().addTo(map);
 let meMarker = null, meAcc = null;
-const C = { amber: "#FFB020", cyan: "#4CC9F0", ok: "#5BE38C" };
+const C = {};
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function readTheme() { C.amber = cssVar("--amber"); C.cyan = cssVar("--cyan"); C.ok = cssVar("--ok"); document.querySelector('meta[name="theme-color"]').content = cssVar("--bg"); }
+readTheme();
+$("#btnTheme").addEventListener("click", () => {
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = t; try { localStorage.setItem("layr.theme", t); } catch (e) {}
+  readTheme(); renderPins(); if (meAcc) meAcc.setStyle({ color: C.cyan }); drawDraft();
+});
 
 function chevronsFor(points, layer, color) {
   for (let i = 1; i < points.length; i++) {
@@ -641,12 +694,12 @@ function profileBlock(d) {
   const W = 320, H = 64, es = pr.pts.map(p => p.e), lo = Math.min(...es), hi = Math.max(...es), span = Math.max(hi - lo, 4), tot = pr.pts.at(-1).s || 1;
   const X = s => (s / tot) * W, Y = e => H - 6 - ((e - lo) / span) * (H - 14);
   const path = pr.pts.map((p, i) => (i ? "L" : "M") + X(p.s).toFixed(1) + " " + Y(p.e).toFixed(1)).join("");
-  const wps = pr.pts.filter(p => p.wp != null).map(p => `<line x1="${X(p.s).toFixed(1)}" x2="${X(p.s).toFixed(1)}" y1="${Y(p.e).toFixed(1)}" y2="${H}" stroke="#3A414A" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("");
+  const wps = pr.pts.filter(p => p.wp != null).map(p => `<line x1="${X(p.s).toFixed(1)}" x2="${X(p.s).toFixed(1)}" y1="${Y(p.e).toFixed(1)}" y2="${H}" class="wpl" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("");
   return `<div class="prof-wrap">
     <div class="prof-meta"><span class="label">Elevation</span><span class="label">${Math.round(lo)}–${Math.round(hi)} M · +${Math.round(pr.gain)} / −${Math.round(pr.loss)}</span></div>
     <svg class="prof" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Elevation profile along the route">
-      ${wps}<path d="${path} L${W} ${H} L0 ${H} Z" fill="#FFB020" fill-opacity=".08"/>
-      <path d="${path}" fill="none" stroke="#FFB020" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+      ${wps}<path class="area" d="${path} L${W} ${H} L0 ${H} Z"/>
+      <path class="ln" d="${path}" fill="none" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
     </svg></div>`;
 }
 function renderDetail() {
@@ -658,7 +711,7 @@ function renderDetail() {
   body.innerHTML = `
     <span class="label">${d.kind === "model" ? "Object · " + esc(itemName(d)) : esc(KIND[d.kind])}${d.shared ? " · shared with you" : ""}</span>
     <h2>${esc(d.title)}</h2>
-    ${MODELS3D[d.model] && d.kind === "model" ? `<img class="thumb" src="models/thumbs/${esc(d.model)}.jpg" alt="${esc(itemName(d))}">` : ""}
+    ${MODELS3D[d.model] && d.kind === "model" ? `<img class="thumb" src="models/thumbs/${esc(d.model)}.png" alt="${esc(itemName(d))}">` : ""}
     ${d.kind === "message" ? `<div class="msg" style="--c:${esc(d.color)}">${inR ? esc(d.text) : '<span class="muted">Unlocks when you arrive.</span>'}</div>` : ""}
     <dl class="stats">
       <div><dt>Status</dt><dd class="${inR ? "in" : ""}">${inR ? "IN RANGE" : "OUT OF RANGE"}</dd></div>
@@ -676,6 +729,7 @@ function renderDetail() {
     <p class="note">${d.kind === "route" ? "Drag the numbered stops to reshape the route." : "Drag the pin to move it."}${!inR && S.sim ? " Simulated: tap the map near it to walk there." : ""}</p>`;
   $("#dropBtn").hidden = false; summary(); resetScroll("d:" + d.id);
   if (QUICKLOOK && !S.xr && d.kind !== "route") usdzFor(d).catch(() => {});
+  if (d.kind === "route" && matchMedia("(pointer: coarse)").matches) Compass.start(); // have a heading ready before AR opens
 }
 function renderAbout() {
   S.view = "about"; S.selected = null; setPanel(true); renderPins();
@@ -707,7 +761,7 @@ function renderCompose() {
     <div class="sec-head"><button class="back" data-act="cancel" type="button">‹ Cancel</button><span class="label" id="cPos">--</span></div>
     <div class="seg" role="group" aria-label="Drop type">${["model", "message", "route"].map(k => `<button type="button" data-act="kind" data-k="${k}" aria-pressed="${d.kind === k}">${KIND[k]}</button>`).join("")}</div>
     ${d.kind === "model" ? `<div class="pick-head"><span class="label">3D models</span><span class="label">${Object.keys(MODELS3D).length}</span></div>
-      <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.jpg" alt="" loading="lazy"><span>${v.name}</span></button>`).join("")}</div>
+      <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy"><span>${v.name}</span></button>`).join("")}</div>
       <div class="pick-head"><span class="label">Light markers</span><span class="label">${Object.keys(OBJECTS).length}</span></div>
       <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>` : ""}
     ${d.kind === "message" ? `<div class="field"><label class="label" for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they arrive?">${esc(d.text)}</textarea></div>
@@ -934,6 +988,8 @@ function showAR(d, mode) {
   $("#arTitle").textContent = d.title;
   $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · ROTATION ONLY", viewer: "3D PREVIEW" }[mode];
   $("#arRouteCtl").hidden = d.kind !== "route";
+  $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
+  Heading.rig = null;
 }
 const hint = t => { $("#arHint").textContent = t; };
 function closeAR() {
@@ -1293,13 +1349,13 @@ function orbitRig(center, R0) {
     stop() { removeEventListener("resize", onResize); renderer.dispose(); }
   };
 }
-function gridFloor(size, div) { const g = new THREE.GridHelper(size, div, lc(0x3A414A), lc(0x1A1F25)); g.material.transparent = true; g.material.opacity = .9; return g; }
+function gridFloor(size, div) { const g = new THREE.GridHelper(size, div, lc(cssVar("--scene-grid")), lc(cssVar("--scene-grid-2"))); g.material.transparent = true; g.material.opacity = .9; return g; }
 function startViewer(d, note) {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
   $("#arStage").innerHTML = ""; $("#arVideo").hidden = true; showAR(d, "viewer"); hint(note || "Drag to orbit. Pinch or scroll to zoom.");
   const h = d.kind === "model" && MODELS3D[d.model] ? (MODELS3D[d.model].h || MODELS3D[d.model].size * .5) : 1.6;
   const rig = orbitRig(V(0, h * .45, 0), window.__thumb ? .35 + h * 1.75 : 1.4 + h * 1.9);
-  const built = buildObjectScene(d, rig.renderer); built.scene.background = lc(0x07090B); built.scene.add(gridFloor(8, 16));
+  const built = buildObjectScene(d, rig.renderer); if (!window.__thumb) { built.scene.background = lc(cssVar("--scene-bg")); built.scene.add(gridFloor(8, 16)); }
   built.spawn(performance.now() / 1000);
   let raf = 0; const loop = () => { raf = requestAnimationFrame(loop); rig.step(); built.update(performance.now() / 1000, rig.cam); rig.renderer.render(built.scene, rig.cam); }; loop();
   AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); disposeTree(built.scene); };
@@ -1311,7 +1367,9 @@ function startViewer(d, note) {
    =================================================================== */
 function routeRig(d, o) {
   const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
-  const prof = d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }));
+  const prof = (d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }))).map(p => ({ ...p }));
+  // smooth elevation-model noise with a 7-point moving average
+  { const raw = prof.map(p => p.e); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -3; k <= 3; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
   const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .6, pole: 1.3 };
   const COL = { path: 0xFFB020, live: 0x4CC9F0, stem: 0x8A919A, done: 0x5A616A };
   let path = null, glow = null, stems = null, trace = null, live = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
@@ -1322,7 +1380,14 @@ function routeRig(d, o) {
     const fc = n * Math.cos(A.h) + e * Math.sin(A.h), rc = e * Math.cos(A.h) - n * Math.sin(A.h);
     return { x: A.ox + (A.f.x * fc + A.r.x * rc) * A.s, z: A.oz + (A.f.z * fc + A.r.z * rc) * A.s };
   }
-  const gy = p => A.floorY + (eOf(p) - A.e0) * A.vex * A.s;
+  // Height of the ground at p relative to where you stand. Near you, the floor the camera sees is
+  // the truth, so terrain fades in between 8 m and 35 m. Grades steeper than 15% are treated as noise.
+  function rel(p) {
+    const dz = eOf(p) - A.e0; if (o.preview) return dz;
+    const dh = dist(A.geo, p), k = clamp((dh - 8) / 27, 0, 1), cap = .15 * dh;
+    return clamp(dz, -cap, cap) * k * k * (3 - 2 * k);
+  }
+  const gy = p => A.floorY + rel(p) * A.vex * A.s;
   const at = (p, lift) => { const q = xz(p); return V(q.x, gy(p) + lift, q.z); };
   const userGround = () => A.floorY + ((A.userE ?? A.e0) - A.e0) * A.vex * A.s;
   const drop = x => { if (x) { root.remove(x); disposeTree(x); } return null; };
@@ -1332,7 +1397,7 @@ function routeRig(d, o) {
     const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
     const segs = Math.min(1600, pts.length * 6);
     path = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, o.tube, 6, false), new THREE.MeshBasicMaterial({ color: lc(COL.path), transparent: true, opacity: .95, depthWrite: false }));
-    glow = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, o.tube * 3.2, 6, false), new THREE.MeshBasicMaterial({ color: lc(COL.path), transparent: true, opacity: .12, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, o.tube * 3.2, 6, false), new THREE.MeshBasicMaterial({ color: lc(COL.path), transparent: true, opacity: document.documentElement.dataset.theme === "dark" || !o.preview ? .12 : .22, depthWrite: false, blending: document.documentElement.dataset.theme === "dark" || !o.preview ? THREE.AdditiveBlending : THREE.NormalBlending }));
     const sp = [], gp = [];
     prof.forEach((p, i) => { const g = at(p, 0); gp.push(g); if (i % o.stemEvery === 0) sp.push(pts[i].x, pts[i].y, pts[i].z, g.x, g.y, g.z); });
     const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
@@ -1348,7 +1413,7 @@ function routeRig(d, o) {
       const lbl = labelSprite(COL.path, o.label); lbl.position.copy(top); lbl.position.y += o.label * .16; g.add(lbl);
       root.add(g); wps.push({ g, i, p: pp, frac: (pp.s || 0) / total, dia, lbl });
     });
-    revealT = null; labelT = -1; built = true;
+    if (!built) revealT = null; labelT = -1; built = true;
   }
   const groundAlong = (a, b, p) => { const k = a.distanceTo(p) / Math.max(a.distanceTo(b), 1e-6); const ya = a.y - A.hover * .7, yb = b.y - A.hover; return ya + (yb - ya) * k; };
   function liveLeg(user, t) {
@@ -1369,6 +1434,7 @@ function routeRig(d, o) {
     get next() { return next; },
     setAlign(a) { Object.assign(A, a); root.position.y = 0; rebuild(); },
     setHover(v) { A.hover = v; if (built) rebuild(); },
+    rotateBy(da) { A.h += da; if (built) rebuild(); },
     setFloor(y) { if (built) root.position.y = y - A.floorY; },
     startAt(user) { let best = 0, bm = Infinity; wps.forEach((w, i) => { const q = xz(w.p), m = Math.hypot(q.x - user.x, q.z - user.z); if (m < bm) { bm = m; best = i; } }); next = best; },
     complete: () => built && next >= wps.length,
@@ -1391,7 +1457,7 @@ function routeRig(d, o) {
         wps.forEach((w2, i) => {
           const done = i < next, cur = i === next && !!user;
           let line2;
-          if (user) { const q = xz(w2.p), m = Math.hypot(q.x - user.x, q.z - user.z) / A.s, dz = eOf(w2.p) - (A.userE ?? A.e0); line2 = `${fmtDist(m)} · ${dz >= 0 ? "+" : "−"}${Math.abs(dz).toFixed(0)} M`; }
+          if (user) { const q = xz(w2.p), m = Math.hypot(q.x - user.x, q.z - user.z) / A.s, dz = o.preview ? eOf(w2.p) - (A.userE ?? A.e0) : rel(w2.p); line2 = `${fmtDist(m)} · ${dz >= 0 ? "+" : "−"}${Math.abs(dz).toFixed(0)} M`; }
           else line2 = w2.p.e == null ? "ELEV --" : "ELEV " + Math.round(w2.p.e) + " M";
           w2.lbl.userData.set(`Stop ${i + 1}${cur ? " · next" : done ? " · passed" : ""}`, line2, cur ? "#4CC9F0" : done ? "#5A616A" : null);
           w2.dia.material.color.copy(lc(cur ? COL.live : done ? COL.done : COL.path));
@@ -1406,10 +1472,45 @@ $("#aglDown").addEventListener("click", () => AGL.set(AGL.v - .2));
 $("#aglUp").addEventListener("click", () => AGL.set(AGL.v + .2));
 
 async function routeOrigin(d) {
-  const geo = { lat: S.me.lat, lng: S.me.lng }; let e = await Terrain.elev(geo);
-  if (e == null) e = d.profile?.pts?.[0]?.e ?? 0;
-  return { geo, e };
+  let geo = { lat: S.me.lat, lng: S.me.lng }, snapped = null;
+  // Standing at a stop? GPS is off by metres but the stop is exact, so start from the stop.
+  const near = d.points.map((p, i) => ({ p, i, m: dist(geo, p) })).sort((a, b) => a.m - b.m)[0];
+  if (near && near.m <= Math.max(10, Math.min(S.me.acc || 0, 20))) { geo = { lat: near.p.lat, lng: near.p.lng }; snapped = near.i; }
+  // median of nine samples around you evens out the elevation model
+  const ring = [geo, ...[0, 45, 90, 135, 180, 225, 270, 315].map(b => offset(geo, 6, b))];
+  const es = (await Terrain.many(ring)).filter(e => e != null).sort((a, b) => a - b);
+  return { geo, snapped, e: es.length ? es[es.length >> 1] : (d.profile?.pts?.[0]?.e ?? 0) };
 }
+/* Compass can be off by 15°. Once you've walked a straight stretch, compare the direction
+   the phone's tracking says you moved with the direction GPS says you moved, and turn the route. */
+function courseCorrector(rig) {
+  let track = [], lastT = -1;
+  return (t, pos) => {
+    if (!S.me || t - lastT < 1) return 0; lastT = t;
+    track.push({ x: pos.x, z: pos.z, g: { lat: S.me.lat, lng: S.me.lng }, acc: S.sim ? 3 : S.me.acc });
+    if (track.length > 40) track.shift();
+    const a = track[0], b = track.at(-1), dl = Math.hypot(b.x - a.x, b.z - a.z), dg = dist(a.g, b.g);
+    if (dl < 12 || dg < 12 || b.acc > 15 || Math.abs(dl - dg) > Math.max(5, dl * .35)) return 0;
+    const A = rig.A, fc = (b.x - a.x) * A.f.x + (b.z - a.z) * A.f.z, rc = (b.x - a.x) * A.r.x + (b.z - a.z) * A.r.z;
+    const d0 = rad(bearing(a.g, b.g)) - (A.h + Math.atan2(rc, fc)), err = Math.atan2(Math.sin(d0), Math.cos(d0));
+    track = [b];
+    if (Math.abs(err) < rad(2)) return 0;
+    const step = clamp(err * .6, -rad(20), rad(20)); rig.rotateBy(step); return deg(step);
+  };
+}
+const Heading = {
+  rig: null, src: "",
+  h0: 0,
+  bind(rig, src) { this.rig = rig; this.src = src; this.h0 = rig.A.h; this.show(); },
+  show() {
+    if (!this.rig) return;
+    const d0 = this.rig.A.h - this.h0, off = deg(Math.atan2(Math.sin(d0), Math.cos(d0)));
+    $("#hdgVal").textContent = (off >= 0 ? "+" : "−") + Math.abs(off).toFixed(0) + "° TURN"; $("#hdgSrc").textContent = this.src;
+  },
+  nudge(deg_) { if (!this.rig) return; this.rig.rotateBy(rad(deg_)); this.src = "Adjusted by hand"; this.show(); }
+};
+$("#rotL").addEventListener("click", () => Heading.nudge(-3));
+$("#rotR").addEventListener("click", () => Heading.nudge(3));
 function flatForward(m) { const f = new THREE.Vector3(0, 0, -1).transformDirection(m); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); return f.normalize(); }
 function headingOrFallback(d, geo) {
   if (Compass.heading != null) return { h: rad(Compass.heading), compass: true };
@@ -1429,7 +1530,8 @@ async function startRouteXR(d) {
   let hitSource = null; try { const v = await session.requestReferenceSpace("viewer"); hitSource = await session.requestHitTestSource({ space: v }); } catch (e) {}
   let origin = await routeOrigin(d), aligned = false, t0 = null, floorY = null, wantAlign = true;
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
-  $("#arRealign").onclick = () => { origin = { geo: { lat: S.me.lat, lng: S.me.lng }, e: origin.e }; Terrain.elev(origin.geo).then(e => { if (e != null) origin.e = e; }); wantAlign = true; aligned = false; t0 = null; };
+  $("#arRealign").onclick = () => { routeOrigin(d).then(o2 => { origin = o2; wantAlign = true; aligned = false; t0 = null; }); };
+  const correct = courseCorrector(rig);
   renderer.setAnimationLoop((time, frame) => {
     const t = time / 1000, xrCam = renderer.xr.getCamera(cam); camPos.setFromMatrixPosition(xrCam.matrixWorld); if (t0 == null) t0 = t;
     if (frame && hitSource) {
@@ -1440,9 +1542,14 @@ async function startRouteXR(d) {
       const f = flatForward(xrCam.matrixWorld), hd = headingOrFallback(d, origin.geo);
       rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: camPos.x, oz: camPos.z, floorY: floorY ?? camPos.y - 1.45, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
       rig.startAt({ x: camPos.x, z: camPos.z }); aligned = true; wantAlign = false;
-      hint(hd.compass ? "Turned to match your compass (±15°). The blue line leads to the next stop." : "No compass reading. The route is turned so the nearest stop is ahead.");
+      Heading.bind(rig, hd.compass ? "Compass" : "No compass");
+      hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop. Walk a few steps and the direction tightens up." : "No compass reading. Use ⟲ ⟳ to line the route up, or walk a few steps."));
     }
-    if (aligned) { rig.update(t, { x: camPos.x, z: camPos.z }); if (rig.complete()) hint("Route complete"); }
+    if (aligned) {
+      const fix = correct(t, { x: camPos.x, z: camPos.z });
+      if (fix) { Heading.src = "Corrected by walking"; Heading.show(); hint(`Direction corrected by ${fix > 0 ? "+" : ""}${fix.toFixed(0)}° from your walking.`); }
+      rig.update(t, { x: camPos.x, z: camPos.z }); if (rig.complete()) hint("Route complete");
+    }
     renderer.render(rig.scene, cam);
   });
   let ended = false;
@@ -1462,7 +1569,7 @@ async function startRouteCamera(d, permP) {
     const f = flatForward(cr.cam.matrixWorld), hd = headingOrFallback(d, origin.geo);
     cr.cam.position.x = 0; cr.cam.position.z = 0;
     rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: 0, oz: 0, floorY: 0, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
-    rig.startAt({ x: 0, z: 0 }); aligned = true;
+    rig.startAt({ x: 0, z: 0 }); aligned = true; Heading.bind(rig, hd.compass ? "Compass" : "No compass");
     hint(hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
@@ -1488,15 +1595,15 @@ function startRouteViewer(d, note) {
   const c = { lat: prof.reduce((a, p) => a + p.lat, 0) / prof.length, lng: prof.reduce((a, p) => a + p.lng, 0) / prof.length };
   const ext = Math.max(20, ...prof.map(p => dist(c, p))), es = prof.map(p => p.e).filter(e => e != null), emin = es.length ? Math.min(...es) : 0;
   const rig = routeRig(d, { tube: .012, dia: .045, label: .55, reach: 6, stemEvery: 1, preview: true });
-  rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: emin, s: 2.2 / ext, vex: 3, hover: AGL.v * .12, pole: .32 });
-  rig.scene.background = lc(0x07090B); rig.scene.add(gridFloor(5, 20));
+  rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1.5, hover: AGL.v * .12, pole: .32 });
+  rig.scene.background = lc(cssVar("--scene-bg")); rig.scene.add(gridFloor(5, 20));
   const me = new THREE.Group(); me.add(circle(.05, 0x4CC9F0, 1, 24), seg(V(0, 0, 0), V(0, .25, 0), 0x4CC9F0, .8)); me.visible = false; rig.scene.add(me);
   const orbit = orbitRig(V(0, .15, 0), 4.2);
   const near = () => S.me && dist(S.me, c) < ext * 3;
   if (near()) rig.startAt(rig.xz(S.me));
   AGL.cb = v => rig.setHover(v * .12); AGL.set(AGL.v);
   $("#arRealign").onclick = () => near() && rig.startAt(rig.xz(S.me));
-  hint(note || `Terrain shown at 3× height. ${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`);
+  hint(note || `Height exaggerated 1.5×. ${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`);
   let raf = 0;
   const loop = () => {
     raf = requestAnimationFrame(loop); orbit.step(); const t = performance.now() / 1000;
