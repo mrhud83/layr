@@ -385,3 +385,18 @@ Ship these metrics from Phase 2 on. Store them in a Supabase `events` table (ano
 4. New URP project, add AR Foundation 6, Apple ARKit, Google ARCore XR plugin, ARCore Extensions, glTFast.
 5. Download one CC0 model pack and import a test GLB.
 6. Build the Phase 0 placement scene and run the walk-around test on both phones.
+
+---
+
+## 13. Surroundings scan, X-ray view and obstacle-aware routes
+
+The web prototype tests these ideas with free data. The native app does them properly.
+
+| Feature | Web prototype (now) | Native app |
+|---|---|---|
+| X-ray outlines of buildings | OpenStreetMap footprints and heights, aligned by compass and GPS. Works in the dark because it's map data. | Google Streetscape Geometry: building and terrain meshes that come with VPS localization, already aligned. |
+| Live scan of the immediate area | WebXR depth sensing on Android Chrome: a lasting point scan. Needs some light. | iPhone Pro LiDAR scene reconstruction works in near darkness. ARCore Depth API on Android. |
+| Route that bends around obstacles | Legs follow OSM walkways (FOSSGIS foot routing). The live leg runs A* on a 50 cm grid around buildings and scanned obstacles. | Same planner, fed by the LiDAR or depth mesh and Streetscape Geometry. |
+| VPS precision | Not wired. Options: MultiSet (WebXR, Android only, paid, needs pre-scanned sites and a token server), or manual alignment with the ⟲ ⟳ buttons against the building outlines. | Google Geospatial API: free at time of writing, global coverage wherever Street View exists. |
+
+Low light: AR tracking itself (ARKit and ARCore) needs some visual texture, so in real darkness the camera loses tracking on phones without LiDAR. The map-based outlines still render. LiDAR iPhones keep tracking and scanning in very low light.

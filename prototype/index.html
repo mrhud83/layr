@@ -137,6 +137,7 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   background: var(--amber-bg); color: var(--amber-ink); font: 600 12px/1 var(--font-mono); letter-spacing: .16em;
 }
 .drop-btn svg { width: 14px; height: 14px; }
+@media (max-width: 819px) { .drop-btn { right: auto; left: max(10px, env(safe-area-inset-left, 0px)); } }
 
 /* Crosshair */
 .cross { position: fixed; z-index: 420; left: var(--cx, 50%); top: var(--cy, 40%); width: 64px; height: 64px; margin: -32px 0 0 -32px; pointer-events: none; }
@@ -279,6 +280,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-ctl .val .label { white-space: nowrap; }
 .ar-ctl .val { padding: 0 12px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-left: 1px solid var(--line); min-width: 108px; }
 .ar-ctl .val b { font: 600 13px/1 var(--font-mono); white-space: nowrap; }
+.ar-ctl button[aria-pressed="false"] { color: var(--dim); }
 .ar-ctl .wide { width: auto; padding: 0 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
 
 @media (prefers-reduced-motion: reduce) { .panel-bar .chev { transition: none; } }
@@ -302,6 +304,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 <nav class="rail frame" aria-label="Map tools">
   <button id="btnLocate" type="button" aria-label="Center on my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
   <button id="btnFit" type="button" aria-label="Show all drops"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+  <button id="btnScan" type="button" aria-label="Scan your surroundings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 15V10l4-3 4 3v5"/><path d="M6 12h12" opacity=".5"/></svg></button>
   <button id="btnLayer" type="button" aria-label="Switch map imagery"><span class="txt" id="layerLbl">MAP</span></button>
   <button id="btnTheme" type="button" aria-label="Switch between light and dark mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/></svg></button>
   <button id="btnInfo" type="button" aria-label="About this prototype"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
@@ -344,6 +347,11 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <button type="button" id="rotL" aria-label="Turn the route left 3 degrees">⟲</button>
         <div class="val"><span class="label" id="hdgSrc">Heading</span><b id="hdgVal">---°</b></div>
         <button type="button" id="rotR" aria-label="Turn the route right 3 degrees">⟳</button>
+        <button type="button" class="wide" id="xrayBtn" aria-pressed="true">X-ray</button>
+      </div>
+      <div class="ar-ctl frame" id="arObjCtl" hidden>
+        <div class="val"><span class="label">Placement</span><b id="lockVal">LOCKED</b></div>
+        <button type="button" class="wide" id="moveBtn">Move it</button>
       </div>
       <div class="ar-hint frame" id="arHint">Starting</div>
     </div>
@@ -471,21 +479,42 @@ const Terrain = {
 };
 function densify(points, step) {
   const total = routeLength(points); step = Math.max(step, total / 300);
-  const out = [{ lat: points[0].lat, lng: points[0].lng, s: 0, wp: 0 }]; let s = 0;
+  const out = [{ lat: points[0].lat, lng: points[0].lng, s: 0, wp: "wp" in points[0] ? points[0].wp : 0 }]; let s = 0;
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1], b = points[i], len = dist(a, b), n = Math.max(1, Math.ceil(len / step));
     for (let k = 1; k <= n; k++) {
       const f = k / n;
-      out.push({ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f, s: s + len * f, wp: k === n ? i : null });
+      out.push({ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f, s: s + len * f, wp: k === n ? ("wp" in b ? b.wp : i) : null });
     }
     s += len;
   }
   return out;
 }
 const profileJobs = new Map();
+/* The line a route actually follows: walkway geometry between stops when we have it, else straight legs. */
+const routeBase = d => d.walk !== false && d.path && d.path.length > 1 ? d.path : d.points.map((p, i) => ({ lat: p.lat, lng: p.lng, wp: i }));
+/* Free OpenStreetMap foot routing (FOSSGIS). Each leg follows paths and sidewalks around buildings. */
+const walkJobs = new Map();
+async function fetchWalk(d) {
+  const job = (walkJobs.get(d.id) || 0) + 1; walkJobs.set(d.id, job);
+  const legs = await Promise.all(d.points.slice(1).map((b, i) => {
+    const a = d.points[i];
+    return fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/driving/${a.lng.toFixed(6)},${a.lat.toFixed(6)};${b.lng.toFixed(6)},${b.lat.toFixed(6)}?overview=full&geometries=geojson`)
+      .then(r => r.json()).then(j => j.code === "Ok" ? j.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng })) : null).catch(() => null);
+  }));
+  if (walkJobs.get(d.id) !== job || !byId(d.id)) return;
+  const path = []; let found = 0;
+  d.points.forEach((p, i) => {
+    path.push({ lat: p.lat, lng: p.lng, wp: i });
+    const g = legs[i], q = d.points[i + 1]; if (!g || !q || g.length < 2) return;
+    if (routeLength(g) > dist(p, q) * 3 + 60) return; // a huge detour means the router went wrong; keep the straight leg
+    found++; g.forEach(c => { if (dist(c, p) > 1.5 && dist(c, q) > 1.5) path.push({ lat: c.lat, lng: c.lng, wp: null }); });
+  });
+  d.path = found ? path : null; d.profile = null; save(); computeProfile(d); renderPins(); refreshPanel();
+}
 function computeProfile(d) {
   const job = (profileJobs.get(d.id) || 0) + 1; profileJobs.set(d.id, job);
-  const pts = densify(d.points, 6);
+  const pts = densify(routeBase(d), 6);
   return Terrain.many(pts).then(es => {
     if (profileJobs.get(d.id) !== job || !byId(d.id)) return;
     const ok = es.every(e => e != null);
@@ -523,8 +552,10 @@ $("#btnTheme").addEventListener("click", () => {
 });
 
 function chevronsFor(points, layer, color) {
+  // one direction arrow about every 35 m along the line
+  let acc = 17;
   for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1], b = points[i]; if (dist(a, b) < 12) continue;
+    const a = points[i - 1], b = points[i], len = dist(a, b); acc += len; if (acc < 35 || len < 2) continue; acc = 0;
     const mid = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
     L.marker([mid.lat, mid.lng], { interactive: false, keyboard: false, icon: L.divIcon({ className: "", iconSize: [14, 14], iconAnchor: [7, 7],
       html: `<svg class="chevron" style="transform:rotate(${bearing(a, b).toFixed(1)}deg);color:${color}" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9l4-4 4 4"/></svg>` }) }).addTo(layer);
@@ -539,8 +570,8 @@ function renderPins() {
     const ring = L.circle([d.lat, d.lng], { radius: d.radius, color: inR ? C.ok : C.amber, weight: 1, opacity: sel ? .9 : .45, fillOpacity: sel ? .08 : .03, dashArray: "2 6", interactive: false }).addTo(dropLayer);
     let line = null;
     if (d.kind === "route") {
-      line = L.polyline(d.points.map(p => [p.lat, p.lng]), { color: C.amber, weight: sel ? 3 : 2, opacity: sel ? 1 : .75, interactive: false }).addTo(dropLayer);
-      chevronsFor(d.points, dropLayer, C.amber);
+      line = L.polyline(routeBase(d).map(p => [p.lat, p.lng]), { color: C.amber, weight: sel ? 3 : 2, opacity: sel ? 1 : .75, interactive: false }).addTo(dropLayer);
+      chevronsFor(routeBase(d), dropLayer, C.amber);
     }
     if (!(d.kind === "route" && sel)) {
       const icon = L.divIcon({ className: "", iconSize: [28, 28], iconAnchor: [14, 14], html: `<div class="pin ${inR ? "in" : ""} ${sel ? "sel" : ""}">${PIN_SVG[d.kind]}</div>` });
@@ -562,12 +593,12 @@ function wireDrag(m, d, ring, line) {
   m.on("dragstart", () => { S.dragging = true; from = snapshot(d); });
   m.on("drag", () => {
     const ll = m.getLatLng(); ring.setLatLng(ll);
-    if (line) { const dLat = ll.lat - from.lat, dLng = ll.lng - from.lng; line.setLatLngs(from.points.map(p => [p.lat + dLat, p.lng + dLng])); }
+    if (line) { const dLat = ll.lat - from.lat, dLng = ll.lng - from.lng; line.setLatLngs((from.path || from.points).map(p => [p.lat + dLat, p.lng + dLng])); }
   });
   m.on("dragend", () => {
     const ll = m.getLatLng(), dLat = ll.lat - from.lat, dLng = ll.lng - from.lng;
     d.lat = ll.lat; d.lng = ll.lng;
-    if (d.kind === "route") { d.points = from.points.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng })); d.profile = null; computeProfile(d); }
+    if (d.kind === "route") { d.points = from.points.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng })); d.path = null; d.profile = null; computeProfile(d); fetchWalk(d); }
     finishMove(d, from, `${d.title} moved ${fmtDist(dist(from, d))}`);
   });
 }
@@ -577,15 +608,15 @@ function wireWaypointDrag(h, d, i, ring, line) {
   h.on("drag", () => { const ll = h.getLatLng(); line.setLatLngs(d.points.map((p, k) => k === i ? ll : [p.lat, p.lng])); if (i === 0) ring.setLatLng(ll); });
   h.on("dragend", () => {
     const ll = h.getLatLng(); d.points[i] = { lat: ll.lat, lng: ll.lng };
-    d.lat = d.points[0].lat; d.lng = d.points[0].lng; d.profile = null; computeProfile(d);
+    d.lat = d.points[0].lat; d.lng = d.points[0].lng; d.path = null; d.profile = null; computeProfile(d); fetchWalk(d);
     finishMove(d, from, `Stop ${i + 1} moved`);
   });
 }
-function snapshot(d) { return { lat: d.lat, lng: d.lng, points: d.points ? d.points.map(p => ({ ...p })) : null, profile: d.profile || null }; }
+function snapshot(d) { return { lat: d.lat, lng: d.lng, points: d.points ? d.points.map(p => ({ ...p })) : null, path: d.path || null, profile: d.profile || null }; }
 function finishMove(d, from, msg) {
   S.dragging = false; save(); renderPins(); refreshPanel();
   toast(msg, "Undo", () => {
-    d.lat = from.lat; d.lng = from.lng; if (from.points) { d.points = from.points; d.profile = from.profile; }
+    d.lat = from.lat; d.lng = from.lng; if (from.points) { d.points = from.points; d.path = from.path; d.profile = from.profile; }
     save(); renderPins(); refreshPanel(); toast("Move undone");
   });
 }
@@ -670,7 +701,7 @@ function refreshPanel() {
 }
 function sub(d) {
   if (d.kind === "model") return "Object · " + itemName(d);
-  if (d.kind === "route") return "Route · " + d.points.length + " stops · " + fmtDist(routeLength(d.points));
+  if (d.kind === "route") return "Route · " + d.points.length + " stops · " + fmtDist(routeLength(routeBase(d)));
   return "Message · " + (d.text || "").slice(0, 36);
 }
 const tag = d => !S.me ? '<span class="tag">--</span>' : inRange(d) ? '<span class="tag in">IN RANGE</span>' : `<span class="tag">${fmtDist(distTo(d))}</span>`;
@@ -717,9 +748,10 @@ function renderDetail() {
       <div><dt>Status</dt><dd class="${inR ? "in" : ""}">${inR ? "IN RANGE" : "OUT OF RANGE"}</dd></div>
       <div><dt>Distance</dt><dd>${m == null ? "--" : fmtDist(m) + " · " + fmtBrg(bearing(S.me, tgt))}</dd></div>
       <div><dt>Opens within</dt><dd>${d.radius} M</dd></div>
-      <div><dt>${d.kind === "route" ? "Length" : "Position"}</dt><dd>${d.kind === "route" ? fmtDist(routeLength(d.points)) + " · " + d.points.length + " stops" : fmtCoord(d)}</dd></div>
+      <div><dt>${d.kind === "route" ? "Length" : "Position"}</dt><dd>${d.kind === "route" ? fmtDist(routeLength(routeBase(d))) + " · " + d.points.length + " stops" : fmtCoord(d)}</dd></div>
     </dl>
     ${d.kind === "route" ? profileBlock(d) : ""}
+    ${d.kind === "route" ? `<div class="btn-row" style="margin-bottom:8px"><button class="btn grow" data-act="walk" type="button" aria-pressed="${d.walk !== false}">${d.walk !== false ? (d.path ? "Follows walkways · tap for straight" : "Finding walkways…") : "Straight lines · tap for walkways"}</button></div>` : ""}
     <div class="btn-row">
       <button class="btn primary grow" data-act="open" type="button" ${inR ? "" : "disabled"}>${inR ? "Open in AR" : "Move " + fmtDist(away) + " closer"}</button>
       ${inR ? "" : '<button class="btn" data-act="preview" type="button">Preview</button>'}
@@ -728,7 +760,7 @@ function renderDetail() {
     </div>
     <p class="note">${d.kind === "route" ? "Drag the numbered stops to reshape the route." : "Drag the pin to move it."}${!inR && S.sim ? " Simulated: tap the map near it to walk there." : ""}</p>`;
   $("#dropBtn").hidden = false; summary(); resetScroll("d:" + d.id);
-  if (QUICKLOOK && !S.xr && d.kind !== "route") usdzFor(d).catch(() => {});
+  if (QUICKLOOK && !S.xr && d.kind !== "route" && !MODELS3D[d.model]) usdzFor(d).catch(() => {});
   if (d.kind === "route" && matchMedia("(pointer: coarse)").matches) Compass.start(); // have a heading ready before AR opens
 }
 function renderAbout() {
@@ -742,6 +774,8 @@ function renderAbout() {
     </dl>
     <p class="note">On Android with Chrome, objects lock to a detected floor plane with WebXR anchors. They stay put as you walk around them. On iPhone, objects and messages open in Apple's AR Quick Look, which uses ARKit to pin them to the real floor. Routes on iPhone use camera mode, which holds as you turn but follows GPS as you walk.</p>
     <p class="note">Routes are turned to match your compass, which is good to about 10 to 15°. The native app's VPS makes that precise. Terrain comes from public elevation tiles at about 5 m resolution. Drops are saved in this browser. Share one with the link button.</p>
+    <p class="note">Scan shows building outlines from OpenStreetMap, so it works in the dark. On Android phones with a depth sensor it also builds a live point scan of what's around you. Route legs follow walkways from OpenStreetMap foot routing, and the blue line bends around buildings and scanned obstacles.</p>
+    <p class="note">Precise VPS positioning needs a paid service and a pre-scanned site (MultiSet works in Android Chrome) or the native app with Google's Geospatial API. Until then, line outlines up with real walls using ⟲ ⟳ in Scan.</p>
     <p class="note">3D models: Poly Haven (CC0) and the Khronos glTF sample library. Fox model CC0 by PixelMannen; rigging and animation CC BY 4.0 by tomkranis; glTF conversion by AsoboStudio and scurest.</p>
     <div class="btn-row" style="margin-top:14px"><button class="btn danger" data-act="reset" type="button">Clear all drops</button><button class="btn grow" data-act="back" type="button">Done</button></div>`;
   summary();
@@ -824,7 +858,7 @@ function saveDraft() {
   if (d.kind === "model") extra.model = d.model;
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
-  S.drops.push(drop); save(); if (drop.kind === "route") computeProfile(drop);
+  S.drops.push(drop); save(); if (drop.kind === "route") { computeProfile(drop); fetchWalk(drop); }
   S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers();
   toast("Placed. Opens within " + drop.radius + " m.");
   select(drop.id);
@@ -865,6 +899,7 @@ body.addEventListener("click", e => {
   else if (a === "obj") { S.draft.model = b.dataset.k; body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
+  else if (a === "walk") { const d = byId(S.selected); d.walk = d.walk === false; d.profile = null; save(); computeProfile(d); if (d.walk && !d.path) fetchWalk(d); renderPins(); renderDetail(); }
   else if (a === "undo") { S.draft.points.pop(); drawDraft(); }
   else if (a === "save") saveDraft();
 });
@@ -921,7 +956,7 @@ function importFromHash() {
   const m = location.hash.match(/^#drop=([A-Za-z0-9_-]+)$/); if (!m) return;
   try {
     const d = sanitize(JSON.parse(b64d(m[1]))); if (!d) throw 0;
-    if (!byId(d.id)) { S.drops.push(d); save(); if (d.kind === "route") computeProfile(d); }
+    if (!byId(d.id)) { S.drops.push(d); save(); if (d.kind === "route") { computeProfile(d); fetchWalk(d); } }
     S.pendingSelect = d.id; toast("Shared drop received: " + d.title);
   } catch (e) { toast("That share link is damaged."); }
   history.replaceState(null, "", location.pathname + location.search);
@@ -987,11 +1022,15 @@ function showAR(d, mode) {
   $("#ar").hidden = false; $("#ar").classList.toggle("xr", mode === "xr");
   $("#arTitle").textContent = d.title;
   $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · ROTATION ONLY", viewer: "3D PREVIEW" }[mode];
-  $("#arRouteCtl").hidden = d.kind !== "route";
+  const scan = d.id === "__scan";
+  $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
+  $("#arObjCtl").hidden = true;
+  $("#xrayBtn").setAttribute("aria-pressed", XRS.xray);
   Heading.rig = null;
 }
 const hint = t => { $("#arHint").textContent = t; };
+$("#xrayBtn").addEventListener("click", () => { XRS.xray = !XRS.xray; $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); AR.setXray?.(XRS.xray); });
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
   Compass.stop(); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
@@ -1165,7 +1204,8 @@ function buildObjectScene(d, renderer) {
 }
 
 /* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
-const QUICKLOOK = (() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })() && typeof THREE.USDZExporter === "function";
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const QUICKLOOK = ((() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })() || IOS) && typeof THREE.USDZExporter === "function";
 const usdzCache = new Map();
 const keyOf = d => d.id + ":" + d.kind + ":" + (d.model || "") + ":" + (d.title || "") + ":" + (d.text || "") + ":" + (d.color || "");
 // USDZ has no lines, so thin lines become thin tubes, merged per colour to keep the file small.
@@ -1202,11 +1242,27 @@ function meshify(src) {
   }
   return out;
 }
+/* USDZ stores textures as JPEG/PNG at full size; 512 px opaque JPEGs keep files small enough for a phone. */
+function shrinkTextures(scene, size = 512) {
+  const done = new Set();
+  scene.traverse(o => {
+    if (!o.isMesh) return;
+    const m = o.material;
+    ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap"].forEach(k => {
+      const t = m[k]; if (!t || !t.image || done.has(t)) return; done.add(t);
+      const w = Math.min(size, t.image.width || size), h = Math.min(size, t.image.height || size);
+      const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(t.image, 0, 0, w, h);
+      t.image = c; if (!(k === "map" && m.transparent)) t.format = THREE.RGBFormat; t.needsUpdate = true;
+    });
+  });
+}
 function usdzFor(d) {
+  // the bundled models ship as ready-made files, which Quick Look opens most reliably
+  if (d.kind === "model" && MODELS3D[d.model] && !window.__buildUsdz) return Promise.resolve(new URL("models/usdz/" + d.model + ".usdz", location.href).href);
   const key = keyOf(d);
   if (!usdzCache.has(key)) usdzCache.set(key, (async () => {
     let scene;
-    if (d.kind === "model" && MODELS3D[d.model]) { const gltf = await loadGLB(MODELS3D[d.model].file); scene = new THREE.Group(); fitModel(gltf.scene, MODELS3D[d.model]); gltf.scene.traverse(o => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); }); scene.add(gltf.scene); }
+    if (d.kind === "model" && MODELS3D[d.model]) { const gltf = await loadGLB(MODELS3D[d.model].file); scene = new THREE.Group(); fitModel(gltf.scene, MODELS3D[d.model]); gltf.scene.traverse(o => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); }); shrinkTextures(gltf.scene); scene.add(gltf.scene); }
     else { const item = makeObject(d); item.upd(.6, null); item.label.visible = false; scene = meshify(item.obj); }
     scene.updateMatrixWorld(true);
     const data = await new THREE.USDZExporter().parse(scene);
@@ -1239,7 +1295,9 @@ async function startXR(d) {
   let hitSource;
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
-  let lastHit = null, steadyFor = 0, prevHit = null, prevT = 0, anchor = null, placed = false;
+  let lastHit = null, steadyFor = 0, prevHit = null, prevT = 0, anchor = null, placed = false, moving = false;
+  // Once placed, the object is locked. Taps do nothing until you press Move.
+  $("#moveBtn").onclick = () => { moving = true; $("#lockVal").textContent = "TAP TO PLACE"; hint("Aim at the new spot and tap the screen."); };
   const camPos = new THREE.Vector3(), anchored = new THREE.Vector3();
   function place(h, t) {
     const p = h.pose.transform.position;
@@ -1249,9 +1307,10 @@ async function startXR(d) {
     if (anchor?.delete) anchor.delete(); anchor = null;
     $("#arMode").textContent = "WEBXR · TRACKED";
     if (h.result.createAnchor) h.result.createAnchor().then(a => { anchor = a; $("#arMode").textContent = "WEBXR · ANCHORED"; }).catch(() => {});
-    hint("Locked to the floor. Walk around it. Tap to move it.");
+    moving = false; $("#arObjCtl").hidden = false; $("#lockVal").textContent = "LOCKED";
+    hint("Locked to the floor. Walk around it.");
   }
-  session.addEventListener("select", () => { if (lastHit) place(lastHit, performance.now() / 1000); });
+  session.addEventListener("select", () => { if (lastHit && (!placed || moving)) place(lastHit, performance.now() / 1000); });
   renderer.setAnimationLoop((time, frame) => {
     const t = time / 1000, xrCam = renderer.xr.getCamera(cam);
     camPos.setFromMatrixPosition(xrCam.matrixWorld);
@@ -1261,7 +1320,7 @@ async function startXR(d) {
         const pose = hits[0].getPose(ref);
         if (pose && !pose.emulatedPosition) {
           lastHit = { result: hits[0], pose };
-          reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = !placed;
+          reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = !placed || moving;
           const p = pose.transform.position;
           // auto-place only once the floor height has settled
           if (prevHit) { const dt = Math.max(t - prevT, 1e-3), v = Math.hypot(p.x - prevHit.x, p.y - prevHit.y, p.z - prevHit.z) / dt; steadyFor = v < .35 && Math.abs(p.y - prevHit.y) < .01 ? steadyFor + dt : 0; }
@@ -1318,7 +1377,7 @@ async function startCamera(d, permP) {
   };
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; rig.step();
-    if (!placed && rig.hasOri()) { place(t); hint("Holds as you turn. Walking around it needs WebXR on Android."); }
+    if (!placed && rig.hasOri()) { place(t); hint("This browser can't lock objects to the floor, so they shift as you walk. Use Chrome on Android or Safari on iPhone."); }
     else if (!placed && performance.now() - t0 > 1500) { place(t); hint(perm === "granted" ? "No motion data. Object fixed on screen." : "Motion access declined. Object fixed on screen."); }
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
@@ -1365,6 +1424,164 @@ function startViewer(d, note) {
    ROUTES: one continuous line that follows the terrain at a set height
    above ground, plus a live leg from you to the next waypoint.
    =================================================================== */
+/* ===================================================================
+   SURROUNDINGS: building outlines from OpenStreetMap (works in the dark,
+   since it's map data), a live depth scan on phones that support it, and
+   a short-range planner that bends the line to the next stop around both.
+   =================================================================== */
+const XRS = { xray: true };
+const Surround = {
+  mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
+  cache: new Map(),
+  get(c, r = 250) {
+    const key = c.lat.toFixed(3) + "," + c.lng.toFixed(3) + "," + r;
+    if (!this.cache.has(key)) this.cache.set(key, this.load(c, r).catch(() => { this.cache.delete(key); return []; }));
+    return this.cache.get(key);
+  },
+  async load(c, r) {
+    const q = `[out:json][timeout:20];(way["building"](around:${r},${c.lat.toFixed(5)},${c.lng.toFixed(5)});way["building:part"](around:${r},${c.lat.toFixed(5)},${c.lng.toFixed(5)}););out geom tags;`;
+    for (const m of this.mirrors) {
+      try {
+        const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 20000);
+        const res = await fetch(m + "?data=" + encodeURIComponent(q), { signal: ctl.signal }); clearTimeout(tm);
+        if (!res.ok) continue;
+        const j = await res.json();
+        return j.elements.filter(e => e.geometry && e.geometry.length > 3).map(e => {
+          const t = e.tags || {}, lv = parseFloat(t["building:levels"]);
+          const h = parseFloat(t.height) || (lv ? lv * 3.2 : 0) || (t.building === "house" ? 7 : /garage|shed|kiosk/.test(t.building || "") ? 3 : 9);
+          return { pts: e.geometry.map(g => ({ lat: g.lat, lng: g.lon })), h: clamp(h, 2.5, 350), mh: parseFloat(t.min_height) || 0 };
+        });
+      } catch (e) {}
+    }
+    throw new Error("no building data");
+  }
+};
+function inPoly(x, z, pts) { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside; } return inside; }
+/* thin-line building shells, brighter close to you; also records footprints near you as obstacles */
+function xrayLayer(buildings, opt) {
+  return api => {
+    const g = new THREE.Group(), bands = [[], [], []], walls = [], polys = [], s = api.A.s;
+    for (const b of buildings) {
+      const c = { lat: b.pts.reduce((a, p) => a + p.lat, 0) / b.pts.length, lng: b.pts.reduce((a, p) => a + p.lng, 0) / b.pts.length };
+      const dm = dist(api.A.geo, c); if (dm > opt.radius) continue;
+      const loc = b.pts.map(p => api.xz(p)), base = api.gy(c), y0 = base + b.mh * s, y1 = base + b.h * s;
+      const band = bands[dm < 60 ? 0 : dm < 140 ? 1 : 2], every = Math.max(1, Math.ceil(loc.length / 24));
+      for (let i = 0; i < loc.length - 1; i++) {
+        const p = loc[i], q = loc[i + 1];
+        band.push(p.x, y0, p.z, q.x, y0, q.z, p.x, y1, p.z, q.x, y1, q.z);
+        if (i % every === 0) band.push(p.x, y0, p.z, p.x, y1, p.z);
+        walls.push(p.x, y0, p.z, q.x, y0, q.z, q.x, y1, q.z, p.x, y0, p.z, q.x, y1, q.z, p.x, y1, p.z);
+      }
+      if (dm < 90) { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; loc.forEach(p => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }); polys.push({ pts: loc, x0, x1, z0, z1 }); }
+    }
+    const dark = document.documentElement.dataset.theme === "dark" || !opt.preview;
+    [.85, .5, .25].forEach((op, i) => { if (!bands[i].length) return; const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(bands[i], 3)); g.add(new THREE.LineSegments(geo, lineMat(opt.preview && !dark ? 0x0A7FB0 : 0x4CC9F0, op))); });
+    if (walls.length) { const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(walls, 3)); g.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: lc(dark ? 0x4CC9F0 : 0x0A7FB0), transparent: true, opacity: dark ? .05 : .08, depthWrite: false, side: THREE.DoubleSide, blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending }))); }
+    if (opt.beacons) for (const d of S.drops) {
+      const p = d.kind === "route" ? d.points[0] : d, m = dist(api.A.geo, p); if (m > opt.radius) continue;
+      const base = api.at(p, 0), hgt = opt.preview ? .35 : 6;
+      g.add(seg(base, base.clone().add(V(0, hgt, 0)), 0xFFB020, .8));
+      const ring = circle(opt.preview ? .04 : .6, 0xFFB020, .8); ring.position.copy(base); g.add(ring);
+      const l = labelSprite(0xFFB020, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
+    }
+    if (opt.obstacles) opt.obstacles.polys = polys;
+    return g;
+  };
+}
+/* WebXR depth sensing (Android Chrome on ARCore phones): turns depth frames into a lasting point
+   scan of the surfaces around you, and marks waist-high points as obstacles on a 40 cm grid. */
+function depthScanner(scene) {
+  const MAX = 36000, pos = new Float32Array(MAX * 3), col = new Float32Array(MAX * 3);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("color", new THREE.BufferAttribute(col, 3)); geo.setDrawRange(0, 0);
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: .03, vertexColors: true, transparent: true, opacity: .9, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pts.frustumCulled = false; scene.add(pts);
+  const occ = new Map(), inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector4(), c1 = lc(0x4CC9F0), c2 = lc(0xFFB020), tmp = new THREE.Color();
+  let n = 0, head = 0, last = -1, floorY = null, working = false;
+  return {
+    occ, get working() { return working; },
+    setFloor(y) { floorY = y; },
+    setVisible(v2) { pts.visible = v2; },
+    sample(frame, ref, t) {
+      if (t - last < .12) return; last = t;
+      const pose = frame.getViewerPose(ref); if (!pose) return;
+      const view = pose.views[0]; let di = null;
+      try { di = frame.getDepthInformation(view); } catch (e) { return; }
+      if (!di) return; working = true;
+      inv.fromArray(view.projectionMatrix).invert(); m.fromArray(view.transform.matrix);
+      for (let gy = 0; gy < 16; gy++) for (let gx = 0; gx < 22; gx++) {
+        const u = (gx + Math.random()) / 22, w = (gy + Math.random()) / 16; let dm;
+        try { dm = di.getDepthInMeters(u, w); } catch (e) { continue; }
+        if (!(dm > .25 && dm < 7)) continue;
+        v.set(u * 2 - 1, 1 - w * 2, -1, 1).applyMatrix4(inv); v.multiplyScalar(1 / v.w);
+        const k = dm / -v.z; v.set(v.x * k, v.y * k, v.z * k, 1).applyMatrix4(m);
+        const i = head * 3, hgt = floorY == null ? 1 : v.y - floorY;
+        pos[i] = v.x; pos[i + 1] = v.y; pos[i + 2] = v.z;
+        tmp.copy(c1).lerp(c2, clamp(hgt / 2.2, 0, 1)); col[i] = tmp.r; col[i + 1] = tmp.g; col[i + 2] = tmp.b;
+        head = (head + 1) % MAX; n = Math.min(n + 1, MAX);
+        if (floorY != null && hgt > .3 && hgt < 1.9) { const key = Math.round(v.x / .4) + "," + Math.round(v.z / .4); occ.set(key, (occ.get(key) || 0) + 1); }
+      }
+      geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true; geo.setDrawRange(0, n);
+    },
+    dispose() { scene.remove(pts); geo.dispose(); pts.material.dispose(); }
+  };
+}
+/* A* on a 50 cm grid out to 40 m, then string-pulled so the line is a few smooth bends, not a staircase */
+function makePlanner(obs) {
+  let cache = null;
+  const blockedAt = (x, z) => {
+    if (obs.cells) { const k = Math.round(x / .4) + "," + Math.round(z / .4); if ((obs.cells.get(k) || 0) >= 3) return true; }
+    const M = .6; // keep 60 cm off walls
+    for (const p of obs.polys || []) {
+      if (x < p.x0 - M || x > p.x1 + M || z < p.z0 - M || z > p.z1 + M) continue;
+      if (inPoly(x, z, p.pts)) return true;
+      for (let i = 0, j = p.pts.length - 1; i < p.pts.length; j = i++) {
+        const a = p.pts[j], b = p.pts[i], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+        const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1);
+        if (Math.hypot(x - a.x - t * dx, z - a.z - t * dz) < M) return true;
+      }
+    }
+    return false;
+  };
+  return (from, to, t) => {
+    if (cache && t - cache.t < .7 && Math.hypot(cache.fx - from.x, cache.fz - from.z) < .5 && Math.hypot(cache.tx - to.x, cache.tz - to.z) < .5) return cache.pts;
+    const C = .5, R = 40, dx = to.x - from.x, dz = to.z - from.z, L = Math.hypot(dx, dz);
+    let res = null;
+    if (L > 1.5 && ((obs.polys && obs.polys.length) || (obs.cells && obs.cells.size))) {
+      const tx = L > R ? from.x + dx / L * R : to.x, tz = L > R ? from.z + dz / L * R : to.z;
+      const ti = Math.round((tx - from.x) / C), tj = Math.round((tz - from.z) / C), lim = Math.ceil(R / C) + 2;
+      const memo = new Map(), blocked = (i, j) => {
+        if ((Math.abs(i) <= 1 && Math.abs(j) <= 1) || (Math.abs(i - ti) <= 1 && Math.abs(j - tj) <= 1)) return false;
+        const k = i * 4096 + j; if (!memo.has(k)) memo.set(k, blockedAt(from.x + i * C, from.z + j * C)); return memo.get(k);
+      };
+      const key = (i, j) => i * 4096 + j, open = [[Math.hypot(ti, tj), 0, 0, 0]], g = new Map([[key(0, 0), 0]]), came = new Map();
+      const push = n2 => { open.push(n2); let c = open.length - 1; while (c) { const p2 = (c - 1) >> 1; if (open[p2][0] <= open[c][0]) break; [open[p2], open[c]] = [open[c], open[p2]]; c = p2; } };
+      const pop = () => { const top = open[0], last = open.pop(); if (open.length) { open[0] = last; let c = 0; for (;;) { const l = 2 * c + 1, r2 = l + 1; let m = c; if (l < open.length && open[l][0] < open[m][0]) m = l; if (r2 < open.length && open[r2][0] < open[m][0]) m = r2; if (m === c) break; [open[m], open[c]] = [open[c], open[m]]; c = m; } } return top; };
+      let found = false, steps = 0;
+      while (open.length && steps++ < 25000) {
+        const [, cg, i, j] = pop(); if (i === ti && j === tj) { found = true; break; }
+        if (cg > (g.get(key(i, j)) ?? Infinity)) continue;
+        for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+          if (!di && !dj) continue; const ni = i + di, nj = j + dj; if (Math.abs(ni) > lim || Math.abs(nj) > lim || blocked(ni, nj)) continue;
+          if (di && dj && (blocked(i + di, j) || blocked(i, j + dj))) continue; // no corner cutting
+          const ng = cg + (di && dj ? 1.4142 : 1); if (ng >= (g.get(key(ni, nj)) ?? Infinity)) continue;
+          g.set(key(ni, nj), ng); came.set(key(ni, nj), key(i, j)); push([ng + Math.hypot(ti - ni, tj - nj), ng, ni, nj]);
+        }
+      }
+      if (found) {
+        let cells = [], k = key(ti, tj); while (k !== undefined) { const i = Math.round(k / 4096), j = k - i * 4096; cells.push({ x: from.x + i * C, z: from.z + j * C }); k = came.get(k); }
+        cells.reverse(); cells[0] = { x: from.x, z: from.z };
+        const clear = (a, b) => { const n2 = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / .25); for (let q = 1; q < n2; q++) { const x = a.x + (b.x - a.x) * q / n2, z = a.z + (b.z - a.z) * q / n2; const i = Math.round((x - from.x) / C), j = Math.round((z - from.z) / C); if (blocked(i, j)) return false; } return true; };
+        const out = [cells[0]]; let i0 = 0;
+        while (i0 < cells.length - 1) { let j0 = cells.length - 1; while (j0 > i0 + 1 && !clear(cells[i0], cells[j0])) j0--; out.push(cells[j0]); i0 = j0; }
+        if (L > R) out.push({ x: to.x, z: to.z });
+        if (out.length > 2) res = out;
+      }
+    }
+    cache = { t, fx: from.x, fz: from.z, tx: to.x, tz: to.z, pts: res };
+    return res;
+  };
+}
+
 function routeRig(d, o) {
   const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
   const prof = (d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }))).map(p => ({ ...p }));
@@ -1372,7 +1589,7 @@ function routeRig(d, o) {
   { const raw = prof.map(p => p.e); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -3; k <= 3; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
   const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .6, pole: 1.3 };
   const COL = { path: 0xFFB020, live: 0x4CC9F0, stem: 0x8A919A, done: 0x5A616A };
-  let path = null, glow = null, stems = null, trace = null, live = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
+  let path = null, glow = null, stems = null, trace = null, live = null, extra = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
   const eOf = p => p.e == null ? A.e0 : p.e;
   const total = prof.at(-1).s || 1;
   function xz(p) {
@@ -1391,8 +1608,11 @@ function routeRig(d, o) {
   const at = (p, lift) => { const q = xz(p); return V(q.x, gy(p) + lift, q.z); };
   const userGround = () => A.floorY + ((A.userE ?? A.e0) - A.e0) * A.vex * A.s;
   const drop = x => { if (x) { root.remove(x); disposeTree(x); } return null; };
+  const api = { A, xz, at, gy };
   function rebuild() {
-    path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); wps.forEach(w => drop(w.g)); wps = [];
+    path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); extra = drop(extra); wps.forEach(w => drop(w.g)); wps = [];
+    if (o.extras) { extra = o.extras(api); extra.visible = XRS.xray; root.add(extra); }
+    if (o.noPath) { built = true; return; }
     const pts = prof.map(p => at(p, A.hover));
     const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
     const segs = Math.min(1600, pts.length * 6);
@@ -1421,11 +1641,18 @@ function routeRig(d, o) {
     const w = wps[next]; if (!w) return;
     const a = V(user.x, userGround() + A.hover * .7, user.z), b = at(w.p, A.hover);
     if (a.distanceTo(b) < .05) return;
-    const pts = []; for (let k = 0; k <= 16; k++) pts.push(a.clone().lerp(b, k / 16));
+    // bend around buildings and scanned obstacles when a planner is available, else go straight
+    const plan = o.planner && o.planner({ x: a.x, z: a.z }, { x: b.x, z: b.z }, t);
+    let pts = [];
+    if (plan) {
+      const cum = [0]; for (let k = 1; k < plan.length; k++) cum.push(cum[k - 1] + Math.hypot(plan[k].x - plan[k - 1].x, plan[k].z - plan[k - 1].z));
+      const tot = cum.at(-1) || 1, curve = new THREE.CatmullRomCurve3(plan.map((q, k) => V(q.x, a.y + (b.y - a.y) * cum[k] / tot, q.z)), false, "centripetal", .5);
+      pts = curve.getSpacedPoints(Math.max(16, Math.round(tot * 2)));
+    } else for (let k = 0; k <= 16; k++) pts.push(a.clone().lerp(b, k / 16));
     live = new THREE.Group();
-    live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, o.tube * .7, 5, false), new THREE.MeshBasicMaterial({ color: lc(COL.live), transparent: true, opacity: .95, depthWrite: false })));
+    live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube * .7, 5, false), new THREE.MeshBasicMaterial({ color: lc(COL.live), transparent: true, opacity: .95, depthWrite: false })));
     const k = o.preview ? A.s * 6 : 1;
-    const dash = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(p => V(p.x, groundAlong(a, b, p), p.z))), new THREE.LineDashedMaterial({ color: lc(COL.live), dashSize: .2 * k, gapSize: .15 * k, transparent: true, opacity: .5 }));
+    const dash = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p, k) => V(p.x, (a.y - A.hover * .7) + ((b.y - A.hover) - (a.y - A.hover * .7)) * k / (pts.length - 1), p.z))), new THREE.LineDashedMaterial({ color: lc(COL.live), dashSize: .2 * k, gapSize: .15 * k, transparent: true, opacity: .5 }));
     dash.computeLineDistances(); live.add(dash);
     root.add(live);
   }
@@ -1434,12 +1661,14 @@ function routeRig(d, o) {
     get next() { return next; },
     setAlign(a) { Object.assign(A, a); root.position.y = 0; rebuild(); },
     setHover(v) { A.hover = v; if (built) rebuild(); },
+    setExtras(fn) { o.extras = fn; if (built) rebuild(); },
+    setXray(v) { if (extra) extra.visible = v; },
     rotateBy(da) { A.h += da; if (built) rebuild(); },
     setFloor(y) { if (built) root.position.y = y - A.floorY; },
     startAt(user) { let best = 0, bm = Infinity; wps.forEach((w, i) => { const q = xz(w.p), m = Math.hypot(q.x - user.x, q.z - user.z); if (m < bm) { bm = m; best = i; } }); next = best; },
-    complete: () => built && next >= wps.length,
+    complete: () => built && !o.noPath && next >= wps.length,
     update(t, user) {
-      if (!built) return;
+      if (!built || o.noPath) return;
       if (revealT == null) revealT = t;
       // the line draws itself out from the start, then stays
       const k = clamp((t - revealT) / 1.8, 0, 1), e = 1 - Math.pow(1 - k, 2);
@@ -1519,13 +1748,23 @@ function headingOrFallback(d, geo) {
 }
 
 async function startRouteXR(d) {
-  showAR(d, "xr"); hint("Hold the phone up and look ahead"); Compass.start();
+  const scan = d.id === "__scan";
+  let ended = false;
+  showAR(d, "xr"); hint(scan ? "Look around slowly to build the scan" : "Hold the phone up and look ahead"); Compass.start();
   let session;
-  try { session = await navigator.xr.requestSession("immersive-ar", { optionalFeatures: ["hit-test", "dom-overlay", "local-floor"], domOverlay: { root: $("#ar") } }); }
-  catch (e) { closeAR(); toast("Couldn't start AR: " + e.message); return; }
+  try {
+    session = await navigator.xr.requestSession("immersive-ar", {
+      optionalFeatures: ["hit-test", "dom-overlay", "local-floor", "depth-sensing"], domOverlay: { root: $("#ar") },
+      depthSensing: { usagePreference: ["cpu-optimized"], dataFormatPreference: ["luminance-alpha", "float32"] }
+    });
+  } catch (e) { closeAR(); toast("Couldn't start AR: " + e.message); return; }
   const renderer = makeRenderer(); renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType("local");
   await renderer.xr.setSession(session);
-  const rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 4, stemEvery: 2 });
+  const obs = { polys: [], cells: null };
+  const rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 4, stemEvery: 2, noPath: scan, planner: makePlanner(obs) });
+  const scanner = session.depthUsage ? depthScanner(rig.scene) : null; if (scanner) obs.cells = scanner.occ;
+  AR.setXray = v => { rig.setXray(v); scanner?.setVisible(v); };
+  if (S.me) Surround.get(S.me).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: 220, obstacles: obs, beacons: scan })); });
   const cam = new THREE.PerspectiveCamera(), camPos = new THREE.Vector3();
   let hitSource = null; try { const v = await session.requestReferenceSpace("viewer"); hitSource = await session.requestHitTestSource({ space: v }); } catch (e) {}
   let origin = await routeOrigin(d), aligned = false, t0 = null, floorY = null, wantAlign = true;
@@ -1536,14 +1775,16 @@ async function startRouteXR(d) {
     const t = time / 1000, xrCam = renderer.xr.getCamera(cam); camPos.setFromMatrixPosition(xrCam.matrixWorld); if (t0 == null) t0 = t;
     if (frame && hitSource) {
       const hits = frame.getHitTestResults(hitSource);
-      if (hits.length) { const p = hits[0].getPose(renderer.xr.getReferenceSpace())?.transform.position; if (p && camPos.y - p.y > .6 && camPos.y - p.y < 2.4) { floorY = floorY == null ? p.y : floorY * .92 + p.y * .08; if (aligned) rig.setFloor(floorY); } }
+      if (hits.length) { const p = hits[0].getPose(renderer.xr.getReferenceSpace())?.transform.position; if (p && camPos.y - p.y > .6 && camPos.y - p.y < 2.4) { floorY = floorY == null ? p.y : floorY * .92 + p.y * .08; if (aligned) rig.setFloor(floorY); scanner?.setFloor(floorY); } }
     }
+    if (frame && scanner) scanner.sample(frame, renderer.xr.getReferenceSpace(), t);
     if (wantAlign && t - t0 > 1 && (Compass.heading != null || t - t0 > 3.5)) {
       const f = flatForward(xrCam.matrixWorld), hd = headingOrFallback(d, origin.geo);
       rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: camPos.x, oz: camPos.z, floorY: floorY ?? camPos.y - 1.45, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
       rig.startAt({ x: camPos.x, z: camPos.z }); aligned = true; wantAlign = false;
       Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-      hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop. Walk a few steps and the direction tightens up." : "No compass reading. Use ⟲ ⟳ to line the route up, or walk a few steps."));
+      if (scan) hint((scanner ? "Depth scan on. " : "This phone has no depth scan, so you'll see map outlines only. ") + "Use ⟲ ⟳ to line the building outlines up with real walls.");
+      else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop and bends around obstacles. Walk a few steps and the direction tightens up." : "No compass reading. Use ⟲ ⟳ to line the route up, or walk a few steps."));
     }
     if (aligned) {
       const fix = correct(t, { x: camPos.x, z: camPos.z });
@@ -1552,17 +1793,20 @@ async function startRouteXR(d) {
     }
     renderer.render(rig.scene, cam);
   });
-  let ended = false;
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); rig.dispose(); renderer.dispose(); AGL.cb = null; };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); scanner?.dispose(); rig.dispose(); renderer.dispose(); AGL.cb = null; AR.setXray = null; };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
 
 async function startRouteCamera(d, permP) {
+  const scan = d.id === "__scan"; let ended = false;
   showAR(d, "camera"); hint("Starting camera"); Compass.start();
   let stream; try { stream = await openCameraFeed(); } catch (e) { return startRouteViewer(d, "Camera blocked. Showing 3D preview."); }
   await permP;
-  const cr = cameraRig(), rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 8, stemEvery: 2 });
+  const obs = { polys: [] };
+  const cr = cameraRig(), rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 8, stemEvery: 2, noPath: scan, planner: makePlanner(obs) });
+  AR.setXray = v => rig.setXray(v);
+  if (S.me) Surround.get(S.me).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: 220, obstacles: obs, beacons: scan })); });
   const origin = await routeOrigin(d); let aligned = false, raf = 0, t0 = performance.now();
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
   const align = () => {
@@ -1570,7 +1814,7 @@ async function startRouteCamera(d, permP) {
     cr.cam.position.x = 0; cr.cam.position.z = 0;
     rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: 0, oz: 0, floorY: 0, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
     rig.startAt({ x: 0, z: 0 }); aligned = true; Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-    hint(hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
+    hint(scan ? "Building outlines from the map. Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
   const loop = () => {
@@ -1585,16 +1829,18 @@ async function startRouteCamera(d, permP) {
     cr.renderer.render(rig.scene, cr.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; };
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; AR.setXray = null; };
 }
 
 function startRouteViewer(d, note) {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
+  const scan = d.id === "__scan"; let ended = false;
   $("#arStage").innerHTML = ""; $("#arVideo").hidden = true; showAR(d, "viewer");
-  const prof = d.profile?.pts?.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }));
+  const prof = d.profile?.pts?.length > 1 ? d.profile.pts : densify(routeBase(d), 6).map(p => ({ ...p, e: null }));
   const c = { lat: prof.reduce((a, p) => a + p.lat, 0) / prof.length, lng: prof.reduce((a, p) => a + p.lng, 0) / prof.length };
-  const ext = Math.max(20, ...prof.map(p => dist(c, p))), es = prof.map(p => p.e).filter(e => e != null), emin = es.length ? Math.min(...es) : 0;
-  const rig = routeRig(d, { tube: .012, dia: .045, label: .55, reach: 6, stemEvery: 1, preview: true });
+  const ext = scan ? 140 : Math.max(20, ...prof.map(p => dist(c, p))), es = prof.map(p => p.e).filter(e => e != null), emin = es.length ? Math.min(...es) : 0;
+  const rig = routeRig(d, { tube: .012, dia: .045, label: .55, reach: 6, stemEvery: 1, preview: true, noPath: scan });
+  Surround.get(c, Math.round(Math.min(320, ext * 1.6))).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: ext * 1.6, preview: true, beacons: scan })); });
   rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1.5, hover: AGL.v * .12, pole: .32 });
   rig.scene.background = lc(cssVar("--scene-bg")); rig.scene.add(gridFloor(5, 20));
   const me = new THREE.Group(); me.add(circle(.05, 0x4CC9F0, 1, 24), seg(V(0, 0, 0), V(0, .25, 0), 0x4CC9F0, .8)); me.visible = false; rig.scene.add(me);
@@ -1603,7 +1849,7 @@ function startRouteViewer(d, note) {
   if (near()) rig.startAt(rig.xz(S.me));
   AGL.cb = v => rig.setHover(v * .12); AGL.set(AGL.v);
   $("#arRealign").onclick = () => near() && rig.startAt(rig.xz(S.me));
-  hint(note || `Height exaggerated 1.5×. ${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`);
+  hint(note || (scan ? "Buildings around you from map data, with nearby drops. Drag to orbit." : `Height exaggerated 1.5×. ${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`));
   let raf = 0;
   const loop = () => {
     raf = requestAnimationFrame(loop); orbit.step(); const t = performance.now() / 1000;
@@ -1612,8 +1858,20 @@ function startRouteViewer(d, note) {
     rig.update(t, user); orbit.renderer.render(rig.scene, orbit.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; };
+  AR.setXray = v => rig.setXray(v);
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; AR.setXray = null; };
 }
+function openScan() {
+  if (!S.me) return toast("Waiting for your location.");
+  const d = { id: "__scan", kind: "route", title: "Surroundings", radius: 0, points: [{ lat: S.me.lat, lng: S.me.lng }] };
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
+  const perm = needPerm ? DeviceOrientationEvent.requestPermission().catch(() => "denied") : Promise.resolve("granted");
+  if (S.xr) return startRouteXR(d);
+  if (touch && navigator.mediaDevices?.getUserMedia) return startRouteCamera(d, perm);
+  startRouteViewer(d);
+}
+$("#btnScan").addEventListener("click", openScan);
 
 /* ================= boot ================= */
 importFromHash();
@@ -1621,6 +1879,7 @@ setPanel(wide());
 renderList();
 startGeo();
 S.drops.filter(d => d.kind === "route" && !d.profile).forEach(computeProfile);
+S.drops.filter(d => d.kind === "route" && d.walk !== false && !d.path).forEach(fetchWalk);
 </script>
 </body>
 </html>
