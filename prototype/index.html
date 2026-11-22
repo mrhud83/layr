@@ -126,8 +126,18 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 .rail button:last-child { border-bottom: 0; }
 .rail button svg { width: 18px; height: 18px; }
 .rail .txt { font: 600 10px/1 var(--font-mono); letter-spacing: .1em; }
-.show-ui { position: fixed; z-index: 500; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: 44px; height: 44px; display: grid; place-items: center; }
-.show-ui svg { width: 18px; height: 18px; }
+/* when hidden, a handle waits at the bottom edge: swipe it up (or tap) to bring everything back */
+.show-ui {
+  position: fixed; z-index: 500; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 168px; padding: 9px 0 calc(env(safe-area-inset-bottom, 0px) + 10px); border-bottom: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 7px; touch-action: none;
+  animation: peek .3s cubic-bezier(.2, .8, .2, 1);
+}
+.show-ui .grip { width: 38px; height: 4px; border-radius: 2px; background: var(--line-2); }
+.show-ui .label { font-size: 9.5px; }
+@keyframes peek { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
+.panel-bar { touch-action: none; }
+@media (prefers-reduced-motion: reduce) { .show-ui { animation: none; } }
 
 /* Drop button */
 .drop-btn {
@@ -169,7 +179,14 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
   .panel:not(.open) { bottom: auto; }
   .drop-btn { bottom: 34px !important; }
 }
-body.ui-off .hud-top, body.ui-off .rail, body.ui-off .panel, body.ui-off .drop-btn { display: none !important; }
+/* the interface slides away while you work on the map, and comes back when you let go */
+.hud-top, .rail, .panel, .drop-btn { transition: transform .3s cubic-bezier(.2, .8, .2, 1), opacity .2s; }
+body.ui-off .hud-top, body.ui-away .hud-top { transform: translateY(calc(-100% - 24px)); opacity: 0; pointer-events: none; }
+body.ui-off .rail, body.ui-away .rail { transform: translateX(calc(100% + 24px)); opacity: 0; pointer-events: none; }
+body.ui-off .panel, body.ui-away .panel { transform: translateY(calc(100% + 12px)); pointer-events: none; }
+body.ui-off .drop-btn, body.ui-away .drop-btn { transform: translateY(160%); opacity: 0; pointer-events: none; }
+@media (min-width: 820px) { body.ui-off .panel, body.ui-away .panel { transform: translateX(calc(-100% - 24px)); } }
+@media (prefers-reduced-motion: reduce) { .hud-top, .rail, .panel, .drop-btn { transition: none; } }
 
 h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0; text-wrap: balance; }
 .muted { color: var(--muted); }
@@ -310,7 +327,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
   <button id="btnInfo" type="button" aria-label="About this prototype"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
   <button id="btnHide" type="button" aria-label="Hide interface and show the full map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/><path d="M4 20 20 4"/></svg></button>
 </nav>
-<button class="show-ui frame" id="btnShow" type="button" hidden aria-label="Show interface"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+<button class="show-ui frame" id="btnShow" type="button" hidden aria-label="Swipe up or tap to bring the interface back"><span class="grip"></span><span class="label">Swipe up</span></button>
 
 <button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v12M1 7h12"/></svg>DROP</button>
 
@@ -767,7 +784,7 @@ function renderDetail() {
       <button class="btn icon" data-act="share" type="button" aria-label="Copy share link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.5 9.5 9.5 6.5M7 4l1.3-1.3a2.8 2.8 0 0 1 4 4L11 8M9 12l-1.3 1.3a2.8 2.8 0 0 1-4-4L5 8"/></svg></button>
       <button class="btn icon danger" data-act="delete" type="button" aria-label="Delete drop"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
     </div>
-    <p class="note">${d.kind === "route" ? "Drag the numbered stops to reshape the route." : "Drag the pin to move it."}${!inR && S.sim ? " Simulated: tap the map near it to walk there." : ""}</p>`;
+    <p class="note">${d.kind === "route" ? (d.drawn ? "Grab the line anywhere and drag to bend it. Drag a numbered stop to move it." : "Drag the numbered stops to reshape the route.") : "Drag the pin to move it."}${!inR && S.sim ? " Simulated: tap the map near it to walk there." : ""}</p>`;
   $("#dropBtn").hidden = false; summary(); resetScroll("d:" + d.id);
   if (QUICKLOOK && !S.xr && d.kind !== "route" && !MODELS3D[d.model]) usdzFor(d).catch(() => {});
   if (d.kind === "route" && matchMedia("(pointer: coarse)").matches) Compass.start(); // have a heading ready before AR opens
@@ -810,9 +827,9 @@ function renderCompose() {
     ${d.kind === "message" ? `<div class="field"><label class="label" for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they arrive?">${esc(d.text)}</textarea></div>
       <div class="field"><span class="label">Accent</span><div class="swatches">${COLORS.map(c => `<button type="button" class="swatch" data-act="color" data-c="${c}" aria-label="Accent ${c}" aria-pressed="${d.color === c}" style="background:${c}"></button>`).join("")}</div></div>` : ""}
     ${d.kind === "route" ? `<div class="seg" role="group" aria-label="How to make the route" style="grid-template-columns:repeat(2,1fr);margin-top:0">
-        <button type="button" data-act="how" data-k="draw" aria-pressed="${d.how === "draw"}">Draw with finger</button><button type="button" data-act="how" data-k="stops" aria-pressed="${d.how === "stops"}">Drop stops</button></div>
+        <button type="button" data-act="how" data-k="draw" aria-pressed="${d.how === "draw"}">Draw</button><button type="button" data-act="how" data-k="stops" aria-pressed="${d.how === "stops"}">Drop stops</button></div>
       ${d.how === "draw" ? `<div class="btn-row"><button class="btn grow" data-act="pan" type="button" aria-pressed="${d.pan}">${d.pan ? "Back to drawing" : "Move map"}</button><button class="btn" data-act="undo" type="button">Undo</button><button class="btn" data-act="clear" type="button">Clear</button></div>
-        <p class="note" id="cStops">Trace the route on the map with one finger. Lift and start again from the end to keep going.</p>`
+        <p class="note" id="cStops">Trace the route with one finger. Start at its end to keep going. Grab the line anywhere to bend it.</p>`
       : `<div class="btn-row"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
         <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
     <div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
@@ -867,7 +884,7 @@ function updateComposeLive() {
   if (d.kind === "route" && d.how === "draw") {
     const len = routeLength(d.stroke), n = d.stroke.length > 1 ? stopsFromStroke(d.stroke).length : 0;
     el.textContent = len ? fmtDist(len) + " drawn" : "Draw on the map";
-    const s2 = $("#cStops"); if (s2 && len) s2.textContent = `${fmtDist(len)} · ${n} stops placed at the start, end and sharp turns. Lift and start again from the end to keep going.`;
+    const s2 = $("#cStops"); if (s2 && len) s2.textContent = `${fmtDist(len)} · ${n} stops placed at the start, end and sharp turns. Grab the line to bend it, or start at its end to keep going.`;
   } else if (d.kind === "route") {
     const last = d.points.at(-1);
     el.textContent = last ? "Next leg " + fmtDist(dist(last, c)) + " · " + fmtBrg(bearing(last, c)) : fmtCoord(c);
@@ -914,36 +931,106 @@ function routeFromStroke(raw) {
   const path = stroke.map((p, i) => ({ lat: p.lat, lng: p.lng, wp: idx.includes(i) ? idx.indexOf(i) : null }));
   return { points, path, drawn: true, walk: false };
 }
-const Draw = { on: false, id: null, last: null, ptrs: new Set() };
+const Draw = { on: false, id: null, last: null, ptrs: new Set(), rope: null };
 function setDrawing(on) {
   Draw.on = on; if (on) map.dragging.disable(); else map.dragging.enable();
   $("#map").style.cursor = on ? "crosshair" : "";
 }
+/* Rope editing: grab a point on the line and drag. Nearby points follow with a smooth falloff
+   along the line, so it bends like a rope instead of kinking at one vertex. */
+const mPerPx = () => 40075016.686 * Math.cos(rad(map.getCenter().lat)) / 2 ** (map.getZoom() + 8);
+function resample(pts, step) {
+  const out = [{ ...pts[0] }];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.ceil(dist(a, b) / step));
+    for (let k = 1; k < n; k++) out.push({ lat: a.lat + (b.lat - a.lat) * k / n, lng: a.lng + (b.lng - a.lng) * k / n, wp: "wp" in b ? null : undefined });
+    out.push({ ...b });
+  }
+  return out.map(p => { if (p.wp === undefined) delete p.wp; return p; });
+}
+function nearestOnLine(pts, x, y) {
+  let best = { d: Infinity, i: -1 };
+  for (let i = 0; i < pts.length; i++) { const c = map.latLngToContainerPoint([pts[i].lat, pts[i].lng]), dd = Math.hypot(c.x - x, c.y - y); if (dd < best.d) best = { d: dd, i }; }
+  return best;
+}
+function ropeBegin(pts, i) {
+  const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + dist(pts[k - 1], pts[k]));
+  return { orig: pts.map(p => ({ ...p })), i, cum, R: 110 * mPerPx() };
+}
+function ropeApply(rope, pts, dLat, dLng) {
+  const c0 = rope.cum[rope.i];
+  for (let k = 0; k < pts.length; k++) {
+    const s0 = Math.abs(rope.cum[k] - c0) / rope.R; if (s0 >= 1) { pts[k].lat = rope.orig[k].lat; pts[k].lng = rope.orig[k].lng; continue; }
+    const w = (1 - s0 * s0) ** 2; pts[k].lat = rope.orig[k].lat + dLat * w; pts[k].lng = rope.orig[k].lng + dLng * w;
+  }
+}
 (() => {
   const el = $("#map");
-  const ll = e => { const r2 = el.getBoundingClientRect(); const c = map.containerPointToLatLng([e.clientX - r2.left, e.clientY - r2.top]); return { lat: c.lat, lng: c.lng }; };
+  const xy = e => { const r2 = el.getBoundingClientRect(); return { x: e.clientX - r2.left, y: e.clientY - r2.top }; };
+  const ll = e => { const q = xy(e), c = map.containerPointToLatLng([q.x, q.y]); return { lat: c.lat, lng: c.lng }; };
+  const grab = (e, kind, target) => { Draw.id = e.pointerId; Draw.last = { x: e.clientX, y: e.clientY }; Draw.kind = kind; Draw.target = target; el.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); uiAway(true); };
   el.addEventListener("pointerdown", e => {
     Draw.ptrs.add(e.pointerId);
-    if (!Draw.on || e.target.closest(".leaflet-marker-icon, .leaflet-control")) return;
-    if (Draw.ptrs.size > 1) { if (Draw.id != null) { S.draft.stroke.length = S.draft.marks.pop() ?? 0; Draw.id = null; drawDraft(); } return; } // two fingers: leave it to pinch zoom
+    if (e.target.closest(".leaflet-marker-icon, .leaflet-control")) return;
+    if (Draw.ptrs.size > 1) { // two fingers: leave it to pinch zoom
+      if (Draw.id != null && Draw.kind === "draw") { S.draft.stroke.length = S.draft.marks.pop() ?? 0; drawDraft(); }
+      if (Draw.id != null && Draw.rope) { ropeApply(Draw.rope, Draw.target, 0, 0); Draw.rope = null; }
+      Draw.id = null; return;
+    }
+    const q = xy(e);
+    // editing a saved drawn route: grab its line to bend it
+    if (!Draw.on && S.view === "detail") {
+      const d = byId(S.selected); if (!d || !d.drawn || !d.path) return;
+      const hit = nearestOnLine(d.path, q.x, q.y); if (hit.d > 24) return;
+      map.dragging.disable();
+      if (d.path.length < routeLength(d.path) / 2.5) { d.path = resample(d.path, 2); }
+      const h2 = nearestOnLine(d.path, q.x, q.y);
+      Draw.undo = snapshot(d); Draw.rope = ropeBegin(d.path, h2.i); Draw.start = ll(e);
+      return grab(e, "rope-route", d.path);
+    }
+    if (!Draw.on) return;
     const d = S.draft, p = ll(e);
-    // start near the end of the last line? keep going; otherwise start a fresh line
-    const endPx = d.stroke.length ? map.latLngToContainerPoint([d.stroke.at(-1).lat, d.stroke.at(-1).lng]) : null, r2 = el.getBoundingClientRect();
-    if (endPx && Math.hypot(endPx.x - (e.clientX - r2.left), endPx.y - (e.clientY - r2.top)) > 40) { d.stroke = []; d.marks = []; }
+    if (d.stroke.length > 1) {
+      const end = map.latLngToContainerPoint([d.stroke.at(-1).lat, d.stroke.at(-1).lng]);
+      if (Math.hypot(end.x - q.x, end.y - q.y) > 36) {
+        const hit = nearestOnLine(d.stroke, q.x, q.y);
+        if (hit.d <= 24) { Draw.undo = d.stroke.map(x => ({ ...x })); Draw.rope = ropeBegin(d.stroke, hit.i); Draw.start = p; return grab(e, "rope-draft", d.stroke); }
+        toast("Grab the line to bend it, start at its end to keep going, or tap Clear to start over."); return;
+      }
+    }
     d.marks.push(d.stroke.length); d.stroke.push(p);
-    Draw.id = e.pointerId; Draw.last = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId);
-    e.preventDefault(); e.stopPropagation(); drawDraft();
+    grab(e, "draw"); drawDraft();
   }, true);
   el.addEventListener("pointermove", e => {
-    if (!Draw.on || e.pointerId !== Draw.id) return;
+    if (e.pointerId !== Draw.id) return;
     if (Math.hypot(e.clientX - Draw.last.x, e.clientY - Draw.last.y) < 3) return;
-    Draw.last = { x: e.clientX, y: e.clientY }; S.draft.stroke.push(ll(e));
-    e.preventDefault(); e.stopPropagation();
-    if (!Draw.raf) Draw.raf = requestAnimationFrame(() => { Draw.raf = 0; drawDraft(); });
+    Draw.last = { x: e.clientX, y: e.clientY }; e.preventDefault(); e.stopPropagation();
+    if (Draw.kind === "draw") S.draft.stroke.push(ll(e));
+    else { const p = ll(e); ropeApply(Draw.rope, Draw.target, p.lat - Draw.start.lat, p.lng - Draw.start.lng); }
+    if (!Draw.raf) Draw.raf = requestAnimationFrame(() => {
+      Draw.raf = 0;
+      if (Draw.kind === "rope-route") { const d = byId(S.selected); if (d) { syncStops(d); renderPins(); } } else drawDraft();
+    });
   }, true);
-  const up = e => { Draw.ptrs.delete(e.pointerId); if (e.pointerId === Draw.id) { Draw.id = null; drawDraft(); } };
+  const up = e => {
+    Draw.ptrs.delete(e.pointerId); if (e.pointerId !== Draw.id) return;
+    const kind = Draw.kind; Draw.id = null; Draw.rope = null; uiAway(false); Draw.endedAt = Date.now();
+    if (kind === "draw") { const d = S.draft, m0 = d.marks.at(-1); if (d.stroke.length - m0 < 2) { d.stroke.length = m0; d.marks.pop(); } drawDraft(); }
+    if (kind === "rope-draft") { const before = Draw.undo; S.draft.marks.push(-1); S.draft.ropeUndo = before; drawDraft(); }
+    if (kind === "rope-route") {
+      map.dragging.enable();
+      const d = byId(S.selected); if (!d) return; const from = Draw.undo;
+      syncStops(d); d.profile = null; computeProfile(d); save(); renderPins(); renderDetail();
+      toast("Route reshaped", "Undo", () => { d.lat = from.lat; d.lng = from.lng; d.points = from.points; d.path = from.path; d.profile = from.profile; save(); renderPins(); refreshPanel(); });
+    }
+  };
   el.addEventListener("pointerup", up, true); el.addEventListener("pointercancel", up, true);
 })();
+// stops of a drawn route sit on the line, so after bending, move each stop to its point on the path
+function syncStops(d) {
+  d.path.forEach(p => { if (p.wp != null && d.points[p.wp]) d.points[p.wp] = { lat: p.lat, lng: p.lng }; });
+  d.lat = d.points[0].lat; d.lng = d.points[0].lng;
+}
 function saveDraft() {
   const d = S.draft; let loc, extra = {};
   if (d.kind === "route" && d.how === "draw") {
@@ -1000,7 +1087,12 @@ body.addEventListener("click", e => {
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
   else if (a === "walk") { const d = byId(S.selected); d.walk = d.walk === false; d.profile = null; save(); computeProfile(d); if (d.walk && !d.path) fetchWalk(d); renderPins(); renderDetail(); }
-  else if (a === "undo") { if (S.draft.how === "draw") { S.draft.stroke.length = S.draft.marks.pop() ?? 0; } else S.draft.points.pop(); drawDraft(); }
+  else if (a === "undo") {
+    const d = S.draft;
+    if (d.how === "draw") { const m = d.marks.pop(); if (m === -1 && d.ropeUndo) { d.stroke = d.ropeUndo; d.ropeUndo = null; } else d.stroke.length = m ?? 0; }
+    else d.points.pop();
+    drawDraft();
+  }
   else if (a === "save") saveDraft();
 });
 $("#dropBtn").addEventListener("click", startCompose);
@@ -1013,18 +1105,42 @@ $("#btnFit").addEventListener("click", () => {
   const br = off ? [30, 30] : wide() ? [70, 30] : [70, r.height - panel.getBoundingClientRect().top + 30];
   map.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lng])), { paddingTopLeft: tl, paddingBottomRight: br, maxZoom: 19 });
 });
-function setUI(on) {
+function setUI(on, quiet) {
   document.body.classList.toggle("ui-off", !on); $("#btnShow").hidden = on; measure();
-  if (!on) toast("Interface hidden. Tap the eye to bring it back.");
+  if (!on && !quiet) toast("Swipe up from the bottom, or tap the map, to bring it back.");
 }
+// slide away while a finger is working the map; back shortly after it lifts
+let awayTimer = 0;
+function uiAway(on) {
+  clearTimeout(awayTimer);
+  if (on) document.body.classList.add("ui-away");
+  else awayTimer = setTimeout(() => document.body.classList.remove("ui-away"), 650);
+}
+map.on("dragstart", () => uiAway(true));
+map.on("dragend", () => uiAway(false));
 $("#btnHide").addEventListener("click", () => setUI(false));
-$("#btnShow").addEventListener("click", () => setUI(true));
+// swipe the handle up (or tap it) to show; swipe the panel's top bar down to hide
+(() => {
+  const sw = (el, dir, fn) => {
+    let y0 = null, moved = false;
+    el.addEventListener("pointerdown", e => { y0 = e.clientY; moved = false; el.setPointerCapture(e.pointerId); });
+    el.addEventListener("pointermove", e => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 8) moved = true; if (dir * dy > 36) { y0 = null; fn(); } });
+    el.addEventListener("pointerup", () => { y0 = null; });
+    el.addEventListener("click", e => { if (moved) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    return () => moved;
+  };
+  sw($("#btnShow"), -1, () => setUI(true, true));
+  $("#btnShow").addEventListener("click", () => setUI(true, true));
+  sw($("#panelBar"), 1, () => setUI(false, true));
+})();
 addEventListener("keydown", e => { if (e.key.toLowerCase() === "h" && !/input|textarea/i.test(e.target.tagName) && $("#ar").hidden) setUI(document.body.classList.contains("ui-off")); });
 
 map.on("click", e => {
+  if (Date.now() - (Draw.endedAt || 0) < 450) return; // the click that ends a draw or bend is not a tap
   if (S.view === "compose" && S.draft.kind === "route") { if (S.draft.how === "stops") addWaypoint({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (S.view === "compose") return;
-  if (S.sim) setMe({ lat: e.latlng.lat, lng: e.latlng.lng, acc: 0 });
+  if (S.sim) return setMe({ lat: e.latlng.lat, lng: e.latlng.lng, acc: 0 });
+  setUI(document.body.classList.contains("ui-off"), true); // tap empty map: hide or bring back the interface
 });
 map.on("move", () => { if (S.view === "compose") drawDraft(); });
 
