@@ -309,6 +309,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/exporters/USDZExporter.js"></script>
 <script>
 "use strict";
 /* ================= helpers ================= */
@@ -673,6 +675,7 @@ function renderDetail() {
     </div>
     <p class="note">${d.kind === "route" ? "Drag the numbered stops to reshape the route." : "Drag the pin to move it."}${!inR && S.sim ? " Simulated: tap the map near it to walk there." : ""}</p>`;
   $("#dropBtn").hidden = false; summary(); resetScroll("d:" + d.id);
+  if (QUICKLOOK && !S.xr && d.kind !== "route") usdzFor(d).catch(() => {});
 }
 function renderAbout() {
   S.view = "about"; S.selected = null; setPanel(true); renderPins();
@@ -683,7 +686,7 @@ function renderAbout() {
       <div><dt>WebXR</dt><dd class="${S.xr ? "in" : ""}">${S.xr ? "AVAILABLE" : "NOT ON THIS DEVICE"}</dd></div>
       <div><dt>Best on</dt><dd>ANDROID CHROME</dd></div>
     </dl>
-    <p class="note">On Android with Chrome, objects lock to a detected floor plane with WebXR anchors. They stay put as you walk around them. iPhone Safari has no WebXR, so iPhones get camera mode: steady as you turn, not as you walk.</p>
+    <p class="note">On Android with Chrome, objects lock to a detected floor plane with WebXR anchors. They stay put as you walk around them. On iPhone, objects and messages open in Apple's AR Quick Look, which uses ARKit to pin them to the real floor. Routes on iPhone use camera mode, which holds as you turn but follows GPS as you walk.</p>
     <p class="note">Routes are turned to match your compass, which is good to about 10 to 15°. The native app's VPS makes that precise. Terrain comes from public elevation tiles at about 5 m resolution. Drops are saved in this browser. Share one with the link button.</p>
     <p class="note">3D models: Poly Haven (CC0) and the Khronos glTF sample library. Fox model CC0 by PixelMannen; rigging and animation CC BY 4.0 by tomkranis; glTF conversion by AsoboStudio and scurest.</p>
     <div class="btn-row" style="margin-top:14px"><button class="btn danger" data-act="reset" type="button">Clear all drops</button><button class="btn grow" data-act="back" type="button">Done</button></div>`;
@@ -922,6 +925,7 @@ function openDrop(id, force) {
     return startRouteViewer(d);
   }
   if (S.xr) return startXR(d);
+  if (QUICKLOOK) return openQuickLook(d);
   if (touch && navigator.mediaDevices?.getUserMedia) return startCamera(d, perm);
   startViewer(d, "No AR camera here. Drag to orbit.");
 }
@@ -1047,6 +1051,15 @@ function makeObject(d) {
 THREE.Cache.enabled = true;
 const gltfLoader = new THREE.GLTFLoader();
 const loadGLB = file => new Promise((res, rej) => gltfLoader.load("models/" + file, res, undefined, rej));
+/* scale to real-world size, centre it, and stand it on y = 0 */
+function fitModel(m, def) {
+  m.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(m), size = box.getSize(new THREE.Vector3());
+  m.scale.setScalar(def.size ? def.size / Math.max(size.x, size.y, size.z) : def.h / size.y);
+  m.updateMatrixWorld(true); box.setFromObject(m); const c = box.getCenter(new THREE.Vector3());
+  m.position.set(-c.x, -box.min.y, -c.z); m.updateMatrixWorld(true);
+  return box;
+}
 function makeModel(d) {
   const def = MODELS3D[d.model], g = new THREE.Group();
   const label = labelSprite(0xE6E8EB, .9); label.position.y = (def.h || 1) + .3; g.add(label);
@@ -1054,11 +1067,7 @@ function makeModel(d) {
   const ph = new THREE.Group(); ph.add(circle(.3, 0xFFB020, .8), ticks(.33, 24, .04, 0xFFB020, .5)); g.add(ph); // shown while loading
   let mixer = null, lastT = null;
   const ready = loadGLB(def.file).then(gltf => {
-    const m = gltf.scene; m.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(m), size = box.getSize(new THREE.Vector3());
-    m.scale.setScalar(def.size ? def.size / Math.max(size.x, size.y, size.z) : def.h / size.y);
-    m.updateMatrixWorld(true); box.setFromObject(m); const c = box.getCenter(new THREE.Vector3());
-    m.position.set(-c.x, -box.min.y, -c.z);
+    const m = gltf.scene, box = fitModel(m, def);
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
     g.add(m); g.remove(ph); disposeTree(ph);
     label.position.y = (box.max.y - box.min.y) + .28;
@@ -1097,6 +1106,66 @@ function buildObjectScene(d, renderer) {
       }
     }
   };
+}
+
+/* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
+const QUICKLOOK = (() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })() && typeof THREE.USDZExporter === "function";
+const usdzCache = new Map();
+const keyOf = d => d.id + ":" + d.kind + ":" + (d.model || "") + ":" + (d.title || "") + ":" + (d.text || "") + ":" + (d.color || "");
+// USDZ has no lines, so thin lines become thin tubes, merged per colour to keep the file small.
+function meshify(src) {
+  const out = new THREE.Group(), groups = new Map(), up = new THREE.Vector3(0, 1, 0);
+  src.updateMatrixWorld(true);
+  const tube = (a, b, key) => {
+    const len = a.distanceTo(b); if (len < 1e-4) return;
+    const g = new THREE.CylinderGeometry(.0045, .0045, len, 6, 1, true);
+    const q = new THREE.Quaternion().setFromUnitVectors(up, b.clone().sub(a).normalize());
+    g.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), q, new THREE.Vector3(1, 1, 1)));
+    groups.get(key).geos.push(g.toNonIndexed());
+  };
+  src.traverse(o => {
+    if (!o.visible || o.isSprite) return;
+    if (o.isLine) {
+      const c = o.material.color, op = o.material.opacity ?? 1, key = c.getHexString() + op.toFixed(2);
+      if (!groups.has(key)) groups.set(key, { mat: new THREE.MeshStandardMaterial({ color: c.clone(), emissive: c.clone().multiplyScalar(.8), roughness: .5, metalness: 0, transparent: op < 1, opacity: op }), geos: [] });
+      const pos = o.geometry.attributes.position, pts = [];
+      for (let i = 0; i < pos.count; i++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld));
+      if (o.isLineSegments) for (let i = 0; i + 1 < pts.length; i += 2) tube(pts[i], pts[i + 1], key);
+      else for (let i = 1; i < pts.length; i++) tube(pts[i - 1], pts[i], key);
+    } else if (o.isMesh) {
+      const m0 = o.material, mat = new THREE.MeshStandardMaterial({ color: m0.map ? 0xffffff : m0.color.clone(), map: m0.map || null, emissive: m0.map ? 0xffffff : m0.color.clone().multiplyScalar(.6), emissiveMap: m0.map || null, roughness: 1, metalness: 0, transparent: !!m0.transparent, opacity: m0.opacity ?? 1, side: THREE.DoubleSide });
+      const m = new THREE.Mesh(o.geometry, mat); o.matrixWorld.decompose(m.position, m.quaternion, m.scale); out.add(m);
+    }
+  });
+  for (const { mat, geos } of groups.values()) {
+    let n = 0; geos.forEach(g => n += g.attributes.position.count);
+    const P = new Float32Array(n * 3), N = new Float32Array(n * 3), U = new Float32Array(n * 2); let o = 0;
+    geos.forEach(g => { P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); U.set(g.attributes.uv.array, o * 2); o += g.attributes.position.count; g.dispose(); });
+    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(P, 3)); geo.setAttribute("normal", new THREE.BufferAttribute(N, 3)); geo.setAttribute("uv", new THREE.BufferAttribute(U, 2));
+    out.add(new THREE.Mesh(geo, mat));
+  }
+  return out;
+}
+function usdzFor(d) {
+  const key = keyOf(d);
+  if (!usdzCache.has(key)) usdzCache.set(key, (async () => {
+    let scene;
+    if (d.kind === "model" && MODELS3D[d.model]) { const gltf = await loadGLB(MODELS3D[d.model].file); scene = new THREE.Group(); fitModel(gltf.scene, MODELS3D[d.model]); gltf.scene.traverse(o => { if (o.isMesh && !o.geometry.attributes.normal) o.geometry.computeVertexNormals(); }); scene.add(gltf.scene); }
+    else { const item = makeObject(d); item.upd(.6, null); item.label.visible = false; scene = meshify(item.obj); }
+    scene.updateMatrixWorld(true);
+    const data = await new THREE.USDZExporter().parse(scene);
+    return URL.createObjectURL(new Blob([data], { type: "model/vnd.usdz+zip" }));
+  })().catch(e => { usdzCache.delete(key); throw e; }));
+  return usdzCache.get(key);
+}
+function launchQuickLook(url) {
+  const a = document.createElement("a"); a.rel = "ar"; a.href = url + "#allowsContentScaling=0";
+  a.appendChild(document.createElement("img")); document.body.appendChild(a); a.click(); a.remove();
+}
+async function openQuickLook(d) {
+  toast("Opening AR. Point at the floor and the object lands on it.");
+  try { launchQuickLook(await usdzFor(d)); }
+  catch (e) { toast("Couldn't prepare the AR file. Showing 3D preview."); startViewer(d); }
 }
 
 /* ---------- WebXR object: plane hit test + anchor ---------- */

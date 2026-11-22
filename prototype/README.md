@@ -15,7 +15,7 @@ One HTML file. No build step, no backend, no keys.
 | Device | AR mode | What holds the object in place |
 |---|---|---|
 | Android phone with Chrome and ARCore | WebXR with hit test and anchors | The phone's tracking. You can walk around the object. |
-| iPhone (Safari has no WebXR) | Camera with motion sensors | Rotation only. It holds as you turn, not as you walk. |
+| iPhone | Objects and messages open in Apple AR Quick Look. Routes use camera mode. | ARKit pins objects to the floor. Routes hold as you turn and follow GPS as you walk. |
 | Desktop | 3D preview | Drag to orbit. |
 
 ## What's in it
