@@ -364,6 +364,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <div class="val"><span class="label">Line height</span><b id="aglVal">0.6 M</b></div>
         <button type="button" id="aglUp" aria-label="Raise the line">+</button>
         <button type="button" class="wide" id="arRealign">Realign</button>
+        <button type="button" class="wide" id="tunnelBtn" aria-pressed="false">Tunnel</button>
       </div>
       <div class="ar-ctl frame" id="arHdgCtl" hidden>
         <button type="button" id="rotL" aria-label="Turn the route left 3 degrees">⟲</button>
@@ -1262,11 +1263,12 @@ function showAR(d, mode) {
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
   $("#arObjCtl").hidden = true;
   $("#aimBtn").hidden = scan;
-  $("#xrayBtn").setAttribute("aria-pressed", XRS.xray);
+  $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel);
   Heading.rig = null;
 }
 const hint = t => { $("#arHint").textContent = t; };
 $("#xrayBtn").addEventListener("click", () => { XRS.xray = !XRS.xray; $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); AR.setXray?.(XRS.xray); });
+$("#tunnelBtn").addEventListener("click", () => { XRS.tunnel = !XRS.tunnel; $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel); AR.setTunnel?.(XRS.tunnel); hint(XRS.tunnel ? "Tunnel view. Walk through the arches." : "Line view."); });
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
   Compass.stop(); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
@@ -1665,7 +1667,7 @@ function startViewer(d, note) {
    since it's map data), a live depth scan on phones that support it, and
    a short-range planner that bends the line to the next stop around both.
    =================================================================== */
-const XRS = { xray: true };
+const XRS = { xray: true, tunnel: false };
 const Surround = {
   mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
   cache: new Map(),
@@ -1884,7 +1886,7 @@ function routeRig(d, o) {
   let path = null, glow = null, stems = null, trace = null, live = null, extra = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
   // rerouting (default on): know how far along you are; when you stray, lead you back to the nearest point ahead
   const reroute = d.reroute !== false;
-  let pl = [], progress = 0, track = null, off = false;
+  let pl = [], progress = 0, track = null, off = false, tunnel = null;
   const eOf = p => p.e == null ? A.e0 : p.e;
   const total = prof.at(-1).s || 1;
   function xz(p) {
@@ -1920,6 +1922,8 @@ function routeRig(d, o) {
     stems = new THREE.LineSegments(sg, lineMat(COL.stem, .45));
     trace = new THREE.Line(new THREE.BufferGeometry().setFromPoints(gp), lineMat(COL.path, .3));
     root.add(glow, path, stems, trace);
+    tunnel = drop(tunnel);
+    if (XRS.tunnel) { tunnel = buildTunnel(); root.add(tunnel); path.visible = glow.visible = stems.visible = false; }
     d.points.forEach((wp, i) => {
       const pp = prof.find(p => p.wp === i) || { ...wp, e: null, s: 0 };
       const g = new THREE.Group(), top = at(pp, A.hover + A.pole), mid = at(pp, A.hover), gnd = at(pp, 0);
@@ -1930,6 +1934,46 @@ function routeRig(d, o) {
       root.add(g); wps.push({ g, i, p: pp, frac: (pp.s || 0) / total, dia, lbl });
     });
     if (!built) revealT = null; labelT = -1; built = true;
+  }
+  /* Tunnel: arches every ~3 m standing on the ground along the route, joined by rails.
+     Colours live in a vertex buffer so a pulse can travel forward through them each frame. */
+  function buildTunnel() {
+    const k = o.preview ? 4 * A.s : 1, W = 1 * k, HW = 1.5 * k, TOP = .8 * k, step = 3;
+    const shape = [[-W, 0], [-W, HW]];
+    for (let i = 1; i < 8; i++) { const a = Math.PI - i / 8 * Math.PI; shape.push([Math.cos(a) * W, HW + Math.sin(a) * TOP]); }
+    shape.push([W, HW], [W, 0]);
+    const arches = []; let nextS = 0;
+    for (let i = 0; i < prof.length; i++) {
+      if (prof[i].s < nextS && i !== prof.length - 1) continue; nextS = prof[i].s + step;
+      const a = pl[Math.max(0, i - 1)], b = pl[Math.min(pl.length - 1, i + 1)];
+      let tx = b.x - a.x, tz = b.z - a.z; const L2 = Math.hypot(tx, tz) || 1; tx /= L2; tz /= L2;
+      const rx = -tz, rz = tx, g = gy(prof[i]);
+      arches.push({ s: prof[i].s, pts: shape.map(([u, v]) => [pl[i].x + rx * u, g + v, pl[i].z + rz * u]) });
+    }
+    const pos = [], sAt = [];
+    arches.forEach((ar, n) => {
+      for (let j = 1; j < ar.pts.length; j++) { pos.push(...ar.pts[j - 1], ...ar.pts[j]); sAt.push(ar.s, ar.s); }
+      const nx = arches[n + 1];
+      if (nx) [0, 1, 5, ar.pts.length - 2, ar.pts.length - 1].forEach(j => { pos.push(...ar.pts[j], ...nx.pts[j]); sAt.push(ar.s, nx.s); });
+    });
+    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
+    const lightPreview = o.preview && document.documentElement.dataset.theme !== "dark";
+    const ln = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .95, depthWrite: false, blending: lightPreview ? THREE.NormalBlending : THREE.AdditiveBlending }));
+    ln.frustumCulled = false; ln.userData.sAt = sAt; ln.userData.base = lc(lightPreview ? 0xB87000 : 0xFFB020); ln.userData.hot = lc(0x4CC9F0);
+    return ln;
+  }
+  function paintTunnel(t) {
+    if (!tunnel) return;
+    const sAt = tunnel.userData.sAt, col = tunnel.geometry.attributes.color, b0 = tunnel.userData.base, h0 = tunnel.userData.hot, A2 = col.array;
+    for (let i = 0; i < sAt.length; i++) {
+      const dd = sAt[i] - progress;
+      let k = dd < -2 ? .12 : Math.max(.22, 1 - dd / 70);
+      const ph = ((dd - t * 7) % 21 + 21) % 21, pulse = Math.max(0, 1 - Math.abs(ph - 2) / 2) * (dd > -2 ? 1 : 0);
+      A2[i * 3] = (b0.r * (1 - pulse) + h0.r * pulse) * (k + pulse * .6);
+      A2[i * 3 + 1] = (b0.g * (1 - pulse) + h0.g * pulse) * (k + pulse * .6);
+      A2[i * 3 + 2] = (b0.b * (1 - pulse) + h0.b * pulse) * (k + pulse * .6);
+    }
+    col.needsUpdate = true;
   }
   const groundAlong = (a, b, p) => { const k = a.distanceTo(p) / Math.max(a.distanceTo(b), 1e-6); const ya = a.y - A.hover * .7, yb = b.y - A.hover; return ya + (yb - ya) * k; };
   function follow(user) {
@@ -1979,6 +2023,7 @@ function routeRig(d, o) {
     setAlign(a) { Object.assign(A, a); root.position.y = 0; rebuild(); },
     setHover(v) { A.hover = v; if (built) rebuild(); },
     setExtras(fn) { o.extras = fn; if (built) rebuild(); },
+    setTunnel() { if (built) rebuild(); },
     setXray(v) { if (extra) extra.visible = v; },
     rotateBy(da) { A.h += da; if (built) rebuild(); },
     setFloor(y) { if (built) root.position.y = y - A.floorY; },
@@ -1993,6 +2038,7 @@ function routeRig(d, o) {
       stems.geometry.setDrawRange(0, Math.floor(stems.geometry.attributes.position.count * e / 2) * 2);
       trace.geometry.setDrawRange(0, Math.floor(trace.geometry.attributes.position.count * e));
       wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
+      if (tunnel) { tunnel.geometry.setDrawRange(0, Math.floor(tunnel.geometry.attributes.position.count * e / 2) * 2); paintTunnel(t); }
       if (user) {
         if (reroute) follow(user);
         else { const w = wps[next]; if (w) { const q = xz(w.p); if (Math.hypot(q.x - user.x, q.z - user.z) / A.s < o.reach) next = Math.min(next + 1, wps.length); } }
@@ -2112,7 +2158,7 @@ async function startRouteXR(d) {
   const obs = { polys: [], cells: null };
   const rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 4, stemEvery: 2, noPath: scan, planner: makePlanner(obs), onRouteChange: routeHint });
   const scanner = session.depthUsage ? depthScanner(rig.scene) : null; if (scanner) obs.cells = scanner.occ;
-  AR.setXray = v => { rig.setXray(v); scanner?.setVisible(v); };
+  AR.setXray = v => { rig.setXray(v); scanner?.setVisible(v); }; AR.setTunnel = () => rig.setTunnel();
   loadSurroundings(rig, obs, scan, () => ended, false);
   const cam = new THREE.PerspectiveCamera(), camPos = new THREE.Vector3();
   let hitSource = null; try { const v = await session.requestReferenceSpace("viewer"); hitSource = await session.requestHitTestSource({ space: v }); } catch (e) {}
@@ -2143,7 +2189,7 @@ async function startRouteXR(d) {
     }
     renderer.render(rig.scene, cam);
   });
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); scanner?.dispose(); rig.dispose(); renderer.dispose(); AGL.cb = null; AR.setXray = null; };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); scanner?.dispose(); rig.dispose(); renderer.dispose(); AGL.cb = null; AR.setXray = AR.setTunnel = null; };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -2155,7 +2201,7 @@ async function startRouteCamera(d, permP) {
   const perm = await permP;
   const obs = { polys: [] };
   const cr = cameraRig(), rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 8, stemEvery: 2, noPath: scan, planner: makePlanner(obs), onRouteChange: routeHint });
-  AR.setXray = v => rig.setXray(v);
+  AR.setXray = v => rig.setXray(v); AR.setTunnel = () => rig.setTunnel();
   loadSurroundings(rig, obs, scan, () => ended, false);
   const origin = await routeOrigin(d); let aligned = false, raf = 0, t0 = performance.now();
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
@@ -2183,7 +2229,7 @@ async function startRouteCamera(d, permP) {
     cr.renderer.render(rig.scene, cr.cam);
   };
   loop();
-  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; AR.setXray = null; };
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; AR.setXray = AR.setTunnel = null; };
 }
 
 function startRouteViewer(d, note) {
@@ -2217,8 +2263,8 @@ function startRouteViewer(d, note) {
     rig.update(t, user); orbit.renderer.render(rig.scene, orbit.cam);
   };
   loop();
-  AR.setXray = v => rig.setXray(v);
-  AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; AR.setXray = null; };
+  AR.setXray = v => rig.setXray(v); AR.setTunnel = () => rig.setTunnel();
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; AR.setXray = AR.setTunnel = null; };
 }
 function openScan() {
   if (!S.me) return toast("Waiting for your location.");
