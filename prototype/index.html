@@ -347,6 +347,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <button type="button" id="rotL" aria-label="Turn the route left 3 degrees">⟲</button>
         <div class="val"><span class="label" id="hdgSrc">Heading</span><b id="hdgVal">---°</b></div>
         <button type="button" id="rotR" aria-label="Turn the route right 3 degrees">⟳</button>
+        <button type="button" class="wide" id="aimBtn">Aim</button>
         <button type="button" class="wide" id="xrayBtn" aria-pressed="true">X-ray</button>
       </div>
       <div class="ar-ctl frame" id="arObjCtl" hidden>
@@ -651,6 +652,7 @@ function startGeo() {
   navigator.geolocation.watchPosition(pos => {
     clearTimeout(timer);
     S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    (S.fixes ||= []).push({ ...S.lastGps, t: Date.now() }); if (S.fixes.length > 10) S.fixes.shift();
     if (!S.sim) setMe({ ...S.lastGps });
   }, err => { clearTimeout(timer); if (!S.me) useSim(err.code === 1 ? "Location permission denied" : "Location unavailable"); },
   { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
@@ -1027,6 +1029,7 @@ function showAR(d, mode) {
   $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
   $("#arObjCtl").hidden = true;
+  $("#aimBtn").hidden = scan;
   $("#xrayBtn").setAttribute("aria-pressed", XRS.xray);
   Heading.rig = null;
 }
@@ -1716,6 +1719,7 @@ function routeRig(d, o) {
   return {
     scene, root, A, xz,
     get next() { return next; },
+    nextPoint: () => wps[next] ? wps[next].p : null,
     setAlign(a) { Object.assign(A, a); root.position.y = 0; rebuild(); },
     setHover(v) { A.hover = v; if (built) rebuild(); },
     setExtras(fn) { o.extras = fn; if (built) rebuild(); },
@@ -1757,8 +1761,15 @@ const AGL = { v: .6, cb: null, set(v) { this.v = Math.round(clamp(v, 0, 3) * 10)
 $("#aglDown").addEventListener("click", () => AGL.set(AGL.v - .2));
 $("#aglUp").addEventListener("click", () => AGL.set(AGL.v + .2));
 
+/* where you stand: GPS fixes from the last 15 s, weighted by their accuracy, beat any single fix */
+function steadyPosition() {
+  const now = Date.now(), fx = S.sim ? [] : (S.fixes || []).filter(f => now - f.t < 15000);
+  if (fx.length < 2) return { lat: S.me.lat, lng: S.me.lng };
+  let w = 0, la = 0, ln = 0; fx.forEach(f => { const k = 1 / Math.max(f.acc, 3) ** 2; w += k; la += f.lat * k; ln += f.lng * k; });
+  return { lat: la / w, lng: ln / w };
+}
 async function routeOrigin(d) {
-  let geo = { lat: S.me.lat, lng: S.me.lng }, snapped = null;
+  let geo = steadyPosition(), snapped = null;
   // Standing at a stop? GPS is off by metres but the stop is exact, so start from the stop.
   const near = d.points.map((p, i) => ({ p, i, m: dist(geo, p) })).sort((a, b) => a.m - b.m)[0];
   if (near && near.m <= Math.max(10, Math.min(S.me.acc || 0, 20))) { geo = { lat: near.p.lat, lng: near.p.lng }; snapped = near.i; }
@@ -1793,8 +1804,32 @@ const Heading = {
     const d0 = this.rig.A.h - this.h0, off = deg(Math.atan2(Math.sin(d0), Math.cos(d0)));
     $("#hdgVal").textContent = (off >= 0 ? "+" : "−") + Math.abs(off).toFixed(0) + "° TURN"; $("#hdgSrc").textContent = this.src;
   },
-  nudge(deg_) { if (!this.rig) return; this.rig.rotateBy(rad(deg_)); this.src = "Adjusted by hand"; this.show(); }
+  nudge(deg_) { if (!this.rig) return; this.rig.rotateBy(rad(deg_)); this.src = "Adjusted by hand"; this.show(); },
+  // Face the real spot of the next stop and tap Aim: the route turns so that stop sits dead ahead.
+  cam: null, user: null,
+  aim() {
+    const rig = this.rig; if (!rig || !this.cam || !this.user) return;
+    const w = rig.nextPoint(); if (!w) { hint("No stop left to aim at."); return; }
+    const q = rig.xz(w), vx = q.x - this.user.x, vz = q.z - this.user.z;
+    const f = flatForward(this.cam.matrixWorld), rx = -f.z, rz = f.x;
+    const th = Math.atan2(vx * rx + vz * rz, vx * f.x + vz * f.z);
+    rig.rotateBy(th); this.src = "Aimed by hand"; this.show();
+    hint("Lined up. The next stop is now straight ahead of where you aimed.");
+  }
 };
+$("#aimBtn").addEventListener("click", () => Heading.aim());
+// drag sideways anywhere on the AR view to turn the route (about 1° per 6 px)
+(() => {
+  let x0 = null, acc = 0, t = 0;
+  const el = $("#ar");
+  el.addEventListener("pointerdown", e => { if (e.target.closest("button") || !Heading.rig || $("#arHdgCtl").hidden) return; x0 = e.clientX; acc = 0; });
+  el.addEventListener("pointermove", e => {
+    if (x0 == null) return; acc += (e.clientX - x0) / 6; x0 = e.clientX;
+    const now = performance.now(); if (now - t > 90 && Math.abs(acc) >= 1) { t = now; Heading.nudge(-acc); acc = 0; }
+  });
+  const end = () => { if (x0 != null && Math.abs(acc) >= .5) Heading.nudge(-acc); x0 = null; acc = 0; };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+})();
 $("#rotL").addEventListener("click", () => Heading.nudge(-3));
 $("#rotR").addEventListener("click", () => Heading.nudge(3));
 function flatForward(m) { const f = new THREE.Vector3(0, 0, -1).transformDirection(m); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); return f.normalize(); }
@@ -1841,8 +1876,9 @@ async function startRouteXR(d) {
       rig.startAt({ x: camPos.x, z: camPos.z }); aligned = true; wantAlign = false;
       Heading.bind(rig, hd.compass ? "Compass" : "No compass");
       if (scan) hint((scanner ? "Depth scan on. " : "No depth scan on this phone. ") + (rig.status || "Loading outlines…") + " Use ⟲ ⟳ to line them up with real walls.");
-      else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop and bends around obstacles. Walk a few steps and the direction tightens up." : "No compass reading. Use ⟲ ⟳ to line the route up, or walk a few steps."));
+      else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop. If it looks off, face where the stop really is and tap Aim, or walk a few steps and it corrects itself." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways."));
     }
+    Heading.cam = xrCam; Heading.user = { x: camPos.x, z: camPos.z };
     if (aligned) {
       const fix = correct(t, { x: camPos.x, z: camPos.z });
       if (fix) { Heading.src = "Corrected by walking"; Heading.show(); hint(`Direction corrected by ${fix > 0 ? "+" : ""}${fix.toFixed(0)}° from your walking.`); }
@@ -1871,7 +1907,7 @@ async function startRouteCamera(d, permP) {
     cr.cam.position.x = 0; cr.cam.position.z = 0;
     rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: 0, oz: 0, floorY: 0, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
     rig.startAt({ x: 0, z: 0 }); aligned = true; Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-    hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
+    hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned by compass, which can be 15° off. If a stop looks off, face where it really is and tap Aim, or drag sideways." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways to turn the route.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
   const loop = () => {
@@ -1884,6 +1920,7 @@ async function startRouteCamera(d, permP) {
       // no WebXR translation here, so walking comes from GPS, smoothed
       const q = rig.xz(S.me); cr.cam.position.x += (q.x - cr.cam.position.x) * .04; cr.cam.position.z += (q.z - cr.cam.position.z) * .04;
       rig.update(t, { x: cr.cam.position.x, z: cr.cam.position.z });
+      Heading.cam = cr.cam; Heading.user = { x: cr.cam.position.x, z: cr.cam.position.z };
       if (rig.complete()) hint("Route complete");
     }
     cr.renderer.render(rig.scene, cr.cam);
