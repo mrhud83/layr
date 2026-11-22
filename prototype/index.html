@@ -267,6 +267,11 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .me.sim::after { background: var(--amber); }
 .wp { width: 22px; height: 22px; display: grid; place-items: center; background: var(--panel-solid); border: 1px solid var(--amber); color: var(--amber); font: 600 10px/1 var(--font-mono); }
 .chevron { width: 14px; height: 14px; display: block; }
+.start-here { position: relative; width: 120px; height: 60px; display: grid; place-items: center; pointer-events: none; }
+.start-here i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border: 1.5px solid var(--amber); border-radius: 50%; animation: ping 1.6s ease-out infinite; }
+.start-here span { position: absolute; top: 100%; margin-top: -8px; font: 600 10px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--amber); background: var(--panel); padding: 4px 6px; border: 1px solid var(--line); white-space: nowrap; }
+@keyframes ping { from { transform: scale(.55); opacity: .95; } to { transform: scale(1.15); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .start-here i { animation: none; } }
 .leaflet-marker-draggable { cursor: grab; }
 
 /* Toast */
@@ -829,7 +834,7 @@ function renderCompose() {
     ${d.kind === "route" ? `<div class="seg" role="group" aria-label="How to make the route" style="grid-template-columns:repeat(2,1fr);margin-top:0">
         <button type="button" data-act="how" data-k="draw" aria-pressed="${d.how === "draw"}">Draw</button><button type="button" data-act="how" data-k="stops" aria-pressed="${d.how === "stops"}">Drop stops</button></div>
       ${d.how === "draw" ? `<div class="btn-row"><button class="btn grow" data-act="pan" type="button" aria-pressed="${d.pan}">${d.pan ? "Back to drawing" : "Move map"}</button><button class="btn" data-act="undo" type="button">Undo</button><button class="btn" data-act="clear" type="button">Clear</button></div>
-        <p class="note" id="cStops">Trace the route with one finger. Start at its end to keep going. Grab the line anywhere to bend it.</p>`
+        <p class="note" id="cStops">Put your finger on Start here to begin where you stand, or anywhere else. Start at the line's end to keep going. Grab the line to bend it.</p>`
       : `<div class="btn-row"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
         <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
     <div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
@@ -860,6 +865,7 @@ function drawDraft() {
   if (S.view !== "compose" || !S.draft) return;
   const d = S.draft, c = draftCenter();
   if (d.kind === "route" && d.how === "draw") {
+    if (!d.stroke.length && S.me) L.marker([S.me.lat, S.me.lng], { interactive: false, zIndexOffset: 900, icon: L.divIcon({ className: "", iconSize: [120, 60], iconAnchor: [60, 30], html: '<div class="start-here"><i></i><span>Start here</span></div>' }) }).addTo(draftLayer);
     if (d.stroke.length > 1) {
       L.polyline(d.stroke.map(p => [p.lat, p.lng]), { color: C.amber, weight: 3, interactive: false }).addTo(draftLayer);
       chevronsFor(d.stroke, draftLayer, C.amber);
@@ -998,7 +1004,10 @@ function ropeApply(rope, pts, dLat, dLng) {
         toast("Grab the line to bend it, start at its end to keep going, or tap Clear to start over."); return;
       }
     }
-    d.marks.push(d.stroke.length); d.stroke.push(p);
+    d.marks.push(d.stroke.length);
+    // starting near you? the line begins exactly where you stand
+    if (!d.stroke.length && S.me) { const me = map.latLngToContainerPoint([S.me.lat, S.me.lng]); if (Math.hypot(me.x - q.x, me.y - q.y) <= 60) d.stroke.push({ lat: S.me.lat, lng: S.me.lng }); }
+    d.stroke.push(p);
     grab(e, "draw"); drawDraft();
   }, true);
   el.addEventListener("pointermove", e => {
