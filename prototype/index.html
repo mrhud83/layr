@@ -640,6 +640,7 @@ function setMe(p) {
   S.me = p;
   if (S.firstFix) {
     S.firstFix = false; map.setView([p.lat, p.lng], 18, { animate: false });
+    setTimeout(() => Surround.get(p), 1500); // warm the outline data so Scan opens fast
     if (S.pendingSelect) { const id = S.pendingSelect; S.pendingSelect = null; select(id); }
   }
   renderMe(); renderPins(); refreshPanel();
@@ -1431,36 +1432,92 @@ function startViewer(d, note) {
    =================================================================== */
 const XRS = { xray: true };
 const Surround = {
-  mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
+  mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
   cache: new Map(),
+  // returns { buildings, ways, source } and never rejects
   get(c, r = 250) {
     const key = c.lat.toFixed(3) + "," + c.lng.toFixed(3) + "," + r;
-    if (!this.cache.has(key)) this.cache.set(key, this.load(c, r).catch(() => { this.cache.delete(key); return []; }));
+    if (!this.cache.has(key)) {
+      const saved = store.get("layr.osm." + key, null);
+      if (saved && Date.now() - saved.t < 7 * 864e5) this.cache.set(key, Promise.resolve({ ...saved.d, source: "saved" }));
+      else this.cache.set(key, this.load(c, r).then(d => { this.keep(key, d); return { ...d, source: "live" }; }).catch(() => { this.cache.delete(key); return { buildings: [], ways: [], source: "failed" }; }));
+    }
     return this.cache.get(key);
   },
-  async load(c, r) {
-    const q = `[out:json][timeout:20];(way["building"](around:${r},${c.lat.toFixed(5)},${c.lng.toFixed(5)});way["building:part"](around:${r},${c.lat.toFixed(5)},${c.lng.toFixed(5)}););out geom tags;`;
-    for (const m of this.mirrors) {
-      try {
-        const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 20000);
-        const res = await fetch(m + "?data=" + encodeURIComponent(q), { signal: ctl.signal }); clearTimeout(tm);
-        if (!res.ok) continue;
-        const j = await res.json();
-        return j.elements.filter(e => e.geometry && e.geometry.length > 3).map(e => {
-          const t = e.tags || {}, lv = parseFloat(t["building:levels"]);
-          const h = parseFloat(t.height) || (lv ? lv * 3.2 : 0) || (t.building === "house" ? 7 : /garage|shed|kiosk/.test(t.building || "") ? 3 : 9);
-          return { pts: e.geometry.map(g => ({ lat: g.lat, lng: g.lon })), h: clamp(h, 2.5, 350), mh: parseFloat(t.min_height) || 0 };
-        });
-      } catch (e) {}
-    }
-    throw new Error("no building data");
+  keep(key, d) {
+    try { const keys = store.get("layr.osm.keys", []).filter(k => k !== key); keys.push(key); while (keys.length > 3) localStorage.removeItem("layr.osm." + keys.shift()); store.set("layr.osm.keys", keys); store.set("layr.osm." + key, { t: Date.now(), d }); } catch (e) {}
+  },
+  // Overpass servers are often busy. Start with one and bring in the next every 7 s; first answer wins.
+  load(c, r) {
+    const at = `(around:${r},${c.lat.toFixed(5)},${c.lng.toFixed(5)})`;
+    const q = `[out:json][timeout:25];(way["building"]${at};way["building:part"]${at};way["highway"~"^(footway|path|pedestrian|steps|cycleway|living_street|residential|service|unclassified|tertiary|secondary|primary|track)$"]${at};);out geom tags qt;`;
+    const ctls = [];
+    const one = (m, delay) => new Promise((res, rej) => setTimeout(async () => {
+      const ctl = new AbortController(); ctls.push(ctl); const tm = setTimeout(() => ctl.abort(), 30000);
+      try { const resp = await fetch(m + "?data=" + encodeURIComponent(q), { signal: ctl.signal }); if (!resp.ok) throw 0; res(await resp.json()); } catch (e) { rej(e); } finally { clearTimeout(tm); }
+    }, delay));
+    return Promise.any(this.mirrors.map((m, i) => one(m, i * 7000))).then(j => {
+      ctls.forEach(x => x.abort());
+      const r6 = v => Math.round(v * 1e6) / 1e6, buildings = [], ways = [];
+      for (const e of j.elements || []) {
+        if (!e.geometry || e.geometry.length < 2) continue;
+        const t = e.tags || {}, pts = e.geometry.map(g => ({ lat: r6(g.lat), lng: r6(g.lon) }));
+        if (t.highway) { ways.push({ pts, foot: /footway|path|pedestrian|steps|cycleway|track/.test(t.highway) }); continue; }
+        if (pts.length < 4) continue;
+        const lv = parseFloat(t["building:levels"]);
+        const h = parseFloat(t.height) || (lv ? lv * 3.2 : 0) || (t.building === "house" ? 7 : /garage|shed|kiosk/.test(t.building || "") ? 3 : 9);
+        buildings.push({ pts, h: clamp(h, 2.5, 350), mh: parseFloat(t.min_height) || 0 });
+      }
+      return { buildings, ways };
+    });
   }
 };
+function surroundMsg(dt) {
+  if (dt.source === "failed") return "Couldn't reach the map server for outlines. Showing range rings only. Try again in a minute.";
+  if (!dt.buildings.length && !dt.ways.length) return "No mapped buildings or paths within 250 m here.";
+  return `${dt.buildings.length} buildings and ${dt.ways.length} paths from OpenStreetMap${dt.source === "saved" ? " (saved)" : ""}.`;
+}
+/* rings now, outlines when the data lands, and a status line either way */
+function loadSurroundings(rig, obs, scan, isEnded) {
+  const base = { radius: 220, obstacles: obs, beacons: scan, rings: scan };
+  if (scan) rig.setExtras(xrayLayer({}, base));
+  if (!S.me) return;
+  const slow = setTimeout(() => { if (!isEnded() && scan) hint("Loading building outlines and paths… map servers can take 20 seconds."); }, 2500);
+  Surround.get(S.me).then(dt => {
+    clearTimeout(slow); if (isEnded()) return;
+    if (dt.buildings.length || dt.ways.length || scan) rig.setExtras(xrayLayer(dt, base));
+    rig.status = surroundMsg(dt);
+    if (scan) hint(rig.status + " Use ⟲ ⟳ to line them up with real walls.");
+  });
+}
 function inPoly(x, z, pts) { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside; } return inside; }
 /* thin-line building shells, brighter close to you; also records footprints near you as obstacles */
-function xrayLayer(buildings, opt) {
+function xrayLayer(data, opt) {
+  const buildings = data.buildings || [], ways = data.ways || [];
   return api => {
     const g = new THREE.Group(), bands = [[], [], []], walls = [], polys = [], s = api.A.s;
+    // streets and footpaths on the ground: usually far better mapped than building heights
+    const foot = [], road = [];
+    for (const w of ways) {
+      const arr = w.foot ? foot : road;
+      for (let i = 1; i < w.pts.length; i++) {
+        const a = w.pts[i - 1], b = w.pts[i]; if (dist(api.A.geo, a) > opt.radius && dist(api.A.geo, b) > opt.radius) continue;
+        const p = api.at(a, .03 * s), q = api.at(b, .03 * s); arr.push(p.x, p.y, p.z, q.x, q.y, q.z);
+      }
+    }
+    [[foot, 0x5BE38C, .55], [road, 0xE6E8EB, .3]].forEach(([arr, c, op]) => { if (!arr.length) return; const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3)); g.add(new THREE.LineSegments(geo, lineMat(c, op))); });
+    // range rings and compass marks around where you stand, so the view is useful before any data arrives
+    if (opt.rings) {
+      const o0 = api.at(api.A.geo, .02 * s);
+      [10, 25, 50, 100].forEach(m => {
+        const ring = circle(m * s, 0x4CC9F0, m === 10 ? .5 : .3, 96); ring.position.copy(o0); g.add(ring);
+        const l = labelSprite(0x4CC9F0, opt.preview ? .3 : Math.min(3.2, .5 + m * .03)); l.position.copy(api.at(offset(api.A.geo, m, deg(api.A.h) + 12), .3 * s)); l.userData.set(m + " M", "range"); g.add(l);
+      });
+      ["N", "E", "S", "W"].forEach((n, i) => {
+        const p = api.at(offset(api.A.geo, 25, i * 90), 1.2 * s); const l = labelSprite(n === "N" ? 0xFFB020 : 0x8A919A, opt.preview ? .28 : 1.1);
+        l.position.copy(p); l.userData.set(n, n === "N" ? "north" : ""); g.add(l);
+      });
+    }
     for (const b of buildings) {
       const c = { lat: b.pts.reduce((a, p) => a + p.lat, 0) / b.pts.length, lng: b.pts.reduce((a, p) => a + p.lng, 0) / b.pts.length };
       const dm = dist(api.A.geo, c); if (dm > opt.radius) continue;
@@ -1764,7 +1821,7 @@ async function startRouteXR(d) {
   const rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 4, stemEvery: 2, noPath: scan, planner: makePlanner(obs) });
   const scanner = session.depthUsage ? depthScanner(rig.scene) : null; if (scanner) obs.cells = scanner.occ;
   AR.setXray = v => { rig.setXray(v); scanner?.setVisible(v); };
-  if (S.me) Surround.get(S.me).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: 220, obstacles: obs, beacons: scan })); });
+  loadSurroundings(rig, obs, scan, () => ended, false);
   const cam = new THREE.PerspectiveCamera(), camPos = new THREE.Vector3();
   let hitSource = null; try { const v = await session.requestReferenceSpace("viewer"); hitSource = await session.requestHitTestSource({ space: v }); } catch (e) {}
   let origin = await routeOrigin(d), aligned = false, t0 = null, floorY = null, wantAlign = true;
@@ -1783,7 +1840,7 @@ async function startRouteXR(d) {
       rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: camPos.x, oz: camPos.z, floorY: floorY ?? camPos.y - 1.45, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
       rig.startAt({ x: camPos.x, z: camPos.z }); aligned = true; wantAlign = false;
       Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-      if (scan) hint((scanner ? "Depth scan on. " : "This phone has no depth scan, so you'll see map outlines only. ") + "Use ⟲ ⟳ to line the building outlines up with real walls.");
+      if (scan) hint((scanner ? "Depth scan on. " : "No depth scan on this phone. ") + (rig.status || "Loading outlines…") + " Use ⟲ ⟳ to line them up with real walls.");
       else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop and bends around obstacles. Walk a few steps and the direction tightens up." : "No compass reading. Use ⟲ ⟳ to line the route up, or walk a few steps."));
     }
     if (aligned) {
@@ -1802,11 +1859,11 @@ async function startRouteCamera(d, permP) {
   const scan = d.id === "__scan"; let ended = false;
   showAR(d, "camera"); hint("Starting camera"); Compass.start();
   let stream; try { stream = await openCameraFeed(); } catch (e) { return startRouteViewer(d, "Camera blocked. Showing 3D preview."); }
-  await permP;
+  const perm = await permP;
   const obs = { polys: [] };
   const cr = cameraRig(), rig = routeRig(d, { tube: .02, dia: .1, label: .9, reach: 8, stemEvery: 2, noPath: scan, planner: makePlanner(obs) });
   AR.setXray = v => rig.setXray(v);
-  if (S.me) Surround.get(S.me).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: 220, obstacles: obs, beacons: scan })); });
+  loadSurroundings(rig, obs, scan, () => ended, false);
   const origin = await routeOrigin(d); let aligned = false, raf = 0, t0 = performance.now();
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
   const align = () => {
@@ -1814,12 +1871,15 @@ async function startRouteCamera(d, permP) {
     cr.cam.position.x = 0; cr.cam.position.z = 0;
     rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: 0, oz: 0, floorY: 0, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
     rig.startAt({ x: 0, z: 0 }); aligned = true; Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-    hint(scan ? "Building outlines from the map. Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
+    hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned to match your compass (±15°). Your position follows GPS here." : "No compass reading. Nearest stop placed ahead.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step();
-    if (!aligned && cr.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) align();
+    if (!aligned && ((cr.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) || performance.now() - t0 > 4000)) {
+      align();
+      if (!cr.hasOri()) hint(perm === "granted" ? "No motion data from this phone, so the view can't turn with you." : "Motion & Orientation access was declined, so the view can't turn with you. Close Safari's tab, reopen the page and tap Allow.");
+    }
     if (aligned) {
       // no WebXR translation here, so walking comes from GPS, smoothed
       const q = rig.xz(S.me); cr.cam.position.x += (q.x - cr.cam.position.x) * .04; cr.cam.position.z += (q.z - cr.cam.position.z) * .04;
@@ -1840,7 +1900,12 @@ function startRouteViewer(d, note) {
   const c = { lat: prof.reduce((a, p) => a + p.lat, 0) / prof.length, lng: prof.reduce((a, p) => a + p.lng, 0) / prof.length };
   const ext = scan ? 140 : Math.max(20, ...prof.map(p => dist(c, p))), es = prof.map(p => p.e).filter(e => e != null), emin = es.length ? Math.min(...es) : 0;
   const rig = routeRig(d, { tube: .012, dia: .045, label: .55, reach: 6, stemEvery: 1, preview: true, noPath: scan });
-  Surround.get(c, Math.round(Math.min(320, ext * 1.6))).then(bs => { if (!ended && bs.length) rig.setExtras(xrayLayer(bs, { radius: ext * 1.6, preview: true, beacons: scan })); });
+  if (scan) rig.setExtras(xrayLayer({}, { radius: ext * 1.6, preview: true, beacons: true, rings: true }));
+  Surround.get(c, Math.round(Math.min(320, ext * 1.6))).then(dt => {
+    if (ended) return;
+    if (dt.buildings.length || dt.ways.length || scan) rig.setExtras(xrayLayer(dt, { radius: ext * 1.6, preview: true, beacons: scan, rings: scan }));
+    if (scan) hint(surroundMsg(dt) + " Drag to orbit.");
+  });
   rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1.5, hover: AGL.v * .12, pole: .32 });
   rig.scene.background = lc(cssVar("--scene-bg")); rig.scene.add(gridFloor(5, 20));
   const me = new THREE.Group(); me.add(circle(.05, 0x4CC9F0, 1, 24), seg(V(0, 0, 0), V(0, .25, 0), 0x4CC9F0, .8)); me.visible = false; rig.scene.add(me);
