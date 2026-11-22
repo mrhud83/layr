@@ -140,14 +140,18 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 @media (prefers-reduced-motion: reduce) { .show-ui { animation: none; } }
 
 /* Drop button */
-.drop-btn {
+.fab-row {
   position: fixed; z-index: 470; right: max(10px, env(safe-area-inset-right, 0px));
-  bottom: calc(var(--panel-h, 56px) + 24px);
+  bottom: calc(var(--panel-h, 56px) + 24px); display: flex; flex-direction: row-reverse; gap: 8px;
+}
+.undo-btn { height: 46px; padding: 0 14px; display: flex; align-items: center; gap: 8px; font: 600 11px/1 var(--font-mono); letter-spacing: .14em; }
+.undo-btn svg { width: 16px; height: 16px; }
+.drop-btn {
   height: 46px; padding: 0 18px; display: flex; align-items: center; gap: 10px;
   background: var(--amber-bg); color: var(--amber-ink); font: 600 12px/1 var(--font-mono); letter-spacing: .16em;
 }
 .drop-btn svg { width: 14px; height: 14px; }
-@media (max-width: 819px) { .drop-btn { right: auto; left: max(10px, env(safe-area-inset-left, 0px)); } }
+@media (max-width: 819px) { .fab-row { right: auto; left: max(10px, env(safe-area-inset-left, 0px)); flex-direction: row; } }
 
 /* Crosshair */
 .cross { position: fixed; z-index: 420; left: var(--cx, 50%); top: var(--cy, 40%); width: 64px; height: 64px; margin: -32px 0 0 -32px; pointer-events: none; }
@@ -177,16 +181,16 @@ button { cursor: pointer; background: none; border: 0; padding: 0; }
 @media (min-width: 820px) {
   .panel { left: max(10px, env(safe-area-inset-left, 0px)); right: auto; width: 360px; top: calc(env(safe-area-inset-top, 0px) + 60px); bottom: 10px; max-height: none; border: 1px solid var(--line); }
   .panel:not(.open) { bottom: auto; }
-  .drop-btn { bottom: 34px !important; }
+  .fab-row { bottom: 34px !important; }
 }
 /* the interface slides away while you work on the map, and comes back when you let go */
-.hud-top, .rail, .panel, .drop-btn { transition: transform .3s cubic-bezier(.2, .8, .2, 1), opacity .2s; }
+.hud-top, .rail, .panel, .fab-row { transition: transform .3s cubic-bezier(.2, .8, .2, 1), opacity .2s; }
 body.ui-off .hud-top, body.ui-away .hud-top { transform: translateY(calc(-100% - 24px)); opacity: 0; pointer-events: none; }
 body.ui-off .rail, body.ui-away .rail { transform: translateX(calc(100% + 24px)); opacity: 0; pointer-events: none; }
 body.ui-off .panel, body.ui-away .panel { transform: translateY(calc(100% + 12px)); pointer-events: none; }
-body.ui-off .drop-btn, body.ui-away .drop-btn { transform: translateY(160%); opacity: 0; pointer-events: none; }
+body.ui-off .fab-row, body.ui-away .fab-row { transform: translateY(160%); opacity: 0; pointer-events: none; }
 @media (min-width: 820px) { body.ui-off .panel, body.ui-away .panel { transform: translateX(calc(-100% - 24px)); } }
-@media (prefers-reduced-motion: reduce) { .hud-top, .rail, .panel, .drop-btn { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .hud-top, .rail, .panel, .fab-row { transition: none; } }
 
 h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0; text-wrap: balance; }
 .muted { color: var(--muted); }
@@ -334,7 +338,10 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 </nav>
 <button class="show-ui frame" id="btnShow" type="button" hidden aria-label="Swipe up or tap to bring the interface back"><span class="grip"></span><span class="label">Swipe up</span></button>
 
-<button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v12M1 7h12"/></svg>DROP</button>
+<div class="fab-row" id="fabRow">
+  <button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v12M1 7h12"/></svg>DROP</button>
+  <button class="undo-btn frame" id="undoBtn" type="button" aria-label="Undo" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg><span>UNDO</span></button>
+</div>
 
 <div class="cross" id="cross" hidden aria-hidden="true">
   <svg viewBox="0 0 64 64" fill="none" style="stroke:var(--amber)" stroke-width="1.2"><circle cx="32" cy="32" r="13"/><path d="M32 6v14M32 44v14M6 32h14M44 32h14"/><circle cx="32" cy="32" r="1.6" style="fill:var(--amber);stroke:none"/></svg>
@@ -469,6 +476,32 @@ const S = {
   xr: false, layer: "map"
 };
 const save = () => store.set("layr.drops.v2", S.drops);
+/* One undo history for every change to the map. Each entry is the state before the change. */
+const History = {
+  stack: [], redo: [],
+  push(label) { this.stack.push({ label, drops: JSON.stringify(S.drops) }); if (this.stack.length > 60) this.stack.shift(); this.redo = []; updateUndo(); },
+  undo() {
+    const h = this.stack.pop(); if (!h) return;
+    this.redo.push({ label: h.label, drops: JSON.stringify(S.drops) }); this.apply(h.drops);
+    toast("Undid " + h.label, this.redo.length ? "Redo" : null, () => this.redoOne());
+  },
+  redoOne() {
+    const h = this.redo.pop(); if (!h) return;
+    this.stack.push({ label: h.label, drops: JSON.stringify(S.drops) }); this.apply(h.drops);
+    toast("Redid " + h.label, "Undo", () => this.undo());
+  },
+  apply(json) {
+    S.drops = JSON.parse(json); if (S.selected && !byId(S.selected)) S.selected = null;
+    save(); renderPins(); if (S.view === "detail" || S.view === "list") (S.selected ? renderDetail() : renderList()); else refreshPanel(); updateUndo();
+  }
+};
+function updateUndo() {
+  const b = document.getElementById("undoBtn"); if (!b) return;
+  const composing = S.view === "compose" && S.draft;
+  const can = composing ? (S.draft.how === "draw" && S.draft.kind === "route" ? S.draft.stroke.length > 0 : S.draft.kind === "route" && S.draft.points.length > 0) : History.stack.length > 0;
+  b.hidden = !can;
+  b.setAttribute("aria-label", composing ? "Undo last line or stop" : "Undo " + (History.stack.at(-1)?.label || ""));
+}
 const byId = id => S.drops.find(d => d.id === id);
 
 /* ================= terrain (AWS terrarium tiles, keyless) ================= */
@@ -620,7 +653,7 @@ function renderPins() {
 /* drag a whole drop. Routes move as a unit. */
 function wireDrag(m, d, ring, line) {
   let from = null;
-  m.on("dragstart", () => { S.dragging = true; from = snapshot(d); });
+  m.on("dragstart", () => { History.push("move"); S.dragging = true; from = snapshot(d); });
   m.on("drag", () => {
     const ll = m.getLatLng(); ring.setLatLng(ll);
     if (line) { const dLat = ll.lat - from.lat, dLng = ll.lng - from.lng; line.setLatLngs((from.path || from.points).map(p => [p.lat + dLat, p.lng + dLng])); }
@@ -638,7 +671,7 @@ function wireDrag(m, d, ring, line) {
 }
 function wireWaypointDrag(h, d, i, ring, line) {
   let from = null;
-  h.on("dragstart", () => { S.dragging = true; from = snapshot(d); });
+  h.on("dragstart", () => { History.push("stop move"); S.dragging = true; from = snapshot(d); });
   h.on("drag", () => { const ll = h.getLatLng(); line.setLatLngs(d.drawn ? d.path.map(p => p.wp === i ? ll : [p.lat, p.lng]) : d.points.map((p, k) => k === i ? ll : [p.lat, p.lng])); if (i === 0) ring.setLatLng(ll); });
   h.on("dragend", () => {
     const ll = h.getLatLng(); d.points[i] = { lat: ll.lat, lng: ll.lng };
@@ -651,10 +684,7 @@ function wireWaypointDrag(h, d, i, ring, line) {
 function snapshot(d) { return { lat: d.lat, lng: d.lng, points: d.points ? d.points.map(p => ({ ...p })) : null, path: d.path || null, profile: d.profile || null }; }
 function finishMove(d, from, msg) {
   S.dragging = false; save(); renderPins(); refreshPanel();
-  toast(msg, "Undo", () => {
-    d.lat = from.lat; d.lng = from.lng; if (from.points) { d.points = from.points; d.path = from.path; d.profile = from.profile; }
-    save(); renderPins(); refreshPanel(); toast("Move undone");
-  });
+  updateUndo(); toast(msg, "Undo", () => History.undo());
 }
 
 function renderMe() {
@@ -723,6 +753,7 @@ function measure() {
 new ResizeObserver(measure).observe(panel); addEventListener("resize", measure);
 
 function summary() {
+  updateUndo();
   const el = $("#panelSum");
   if (S.view === "compose") { el.innerHTML = `<b>NEW DROP</b>`; return; }
   if (S.panelOpen && S.view !== "list") { el.innerHTML = `<span class="label">‹ All drops</span>`; return; }
@@ -869,7 +900,7 @@ function placeCross() {
 }
 const draftCenter = () => { const c = map.containerPointToLatLng(crossPoint()); return { lat: c.lat, lng: c.lng }; };
 function drawDraft() {
-  draftLayer.clearLayers();
+  draftLayer.clearLayers(); updateUndo();
   if (S.view !== "compose" || !S.draft) return;
   const d = S.draft, c = draftCenter();
   if (d.kind === "route" && d.how === "draw") {
@@ -999,7 +1030,7 @@ function ropeApply(rope, pts, dLat, dLng) {
       map.dragging.disable();
       if (d.path.length < routeLength(d.path) / 2.5) { d.path = resample(d.path, 2); }
       const h2 = nearestOnLine(d.path, q.x, q.y);
-      Draw.undo = snapshot(d); Draw.rope = ropeBegin(d.path, h2.i); Draw.start = ll(e);
+      History.push("reshape"); Draw.undo = snapshot(d); Draw.rope = ropeBegin(d.path, h2.i); Draw.start = ll(e);
       return grab(e, "rope-route", d.path);
     }
     if (!Draw.on) return;
@@ -1038,7 +1069,7 @@ function ropeApply(rope, pts, dLat, dLng) {
       map.dragging.enable();
       const d = byId(S.selected); if (!d) return; const from = Draw.undo;
       syncStops(d); d.profile = null; computeProfile(d); save(); renderPins(); renderDetail();
-      toast("Route reshaped", "Undo", () => { d.lat = from.lat; d.lng = from.lng; d.points = from.points; d.path = from.path; d.profile = from.profile; save(); renderPins(); refreshPanel(); });
+      updateUndo(); toast("Route reshaped", "Undo", () => History.undo());
     }
   };
   el.addEventListener("pointerup", up, true); el.addEventListener("pointercancel", up, true);
@@ -1059,6 +1090,7 @@ function saveDraft() {
   if (d.kind === "model") extra.model = d.model;
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
+  History.push(drop.kind === "route" ? "new route" : "new drop");
   S.drops.push(drop); save(); if (drop.kind === "route") { computeProfile(drop); if (!drop.drawn) fetchWalk(drop); }
   S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers(); setDrawing(false);
   toast("Placed. Opens within " + drop.radius + " m.");
@@ -1087,12 +1119,12 @@ body.addEventListener("click", e => {
   else if (a === "preview") openDrop(S.selected, true);
   else if (a === "share") shareDrop(S.selected);
   else if (a === "delete") {
-    const d = byId(S.selected); S.drops = S.drops.filter(x => x.id !== S.selected); save(); S.selected = null; renderList(); renderPins();
-    toast("Deleted " + d.title, "Undo", () => { S.drops.push(d); save(); renderPins(); refreshPanel(); });
+    const d = byId(S.selected); History.push("delete"); S.drops = S.drops.filter(x => x.id !== S.selected); save(); S.selected = null; renderList(); renderPins(); updateUndo();
+    toast("Deleted " + d.title, "Undo", () => History.undo());
   }
   else if (a === "reset") {
     if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "Tap again"; return; }
-    const old = S.drops; S.drops = []; save(); renderList(); renderPins(); toast("All drops cleared", "Undo", () => { S.drops = old; save(); renderPins(); refreshPanel(); });
+    History.push("clear all"); S.drops = []; save(); renderList(); renderPins(); updateUndo(); toast("All drops cleared", "Undo", () => History.undo());
   }
   else if (a === "cancel") { S.draft = null; $("#cross").hidden = true; draftLayer.clearLayers(); setDrawing(false); renderList(); }
   else if (a === "how") { S.draft.how = b.dataset.k; S.draft.pan = false; renderCompose(); }
@@ -1102,8 +1134,8 @@ body.addEventListener("click", e => {
   else if (a === "obj") { S.draft.model = b.dataset.k; body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
-  else if (a === "reroute") { const d = byId(S.selected); d.reroute = d.reroute === false; save(); renderPins(); renderDetail(); }
-  else if (a === "walk") { const d = byId(S.selected); d.walk = d.walk === false; d.profile = null; save(); computeProfile(d); if (d.walk && !d.path) fetchWalk(d); renderPins(); renderDetail(); }
+  else if (a === "reroute") { History.push("reroute setting"); const d = byId(S.selected); d.reroute = d.reroute === false; save(); renderPins(); renderDetail(); }
+  else if (a === "walk") { History.push("walkway setting"); const d = byId(S.selected); d.walk = d.walk === false; d.profile = null; save(); computeProfile(d); if (d.walk && !d.path) fetchWalk(d); renderPins(); renderDetail(); }
   else if (a === "undo") {
     const d = S.draft;
     if (d.how === "draw") { const m = d.marks.pop(); if (m === -1 && d.ropeUndo) { d.stroke = d.ropeUndo; d.ropeUndo = null; } else d.stroke.length = m ?? 0; }
@@ -1113,6 +1145,15 @@ body.addEventListener("click", e => {
   else if (a === "save") saveDraft();
 });
 $("#dropBtn").addEventListener("click", startCompose);
+function undoAny() {
+  if (S.view === "compose" && S.draft) { body.querySelector('[data-act="undo"]')?.click(); return; }
+  History.undo();
+}
+$("#undoBtn").addEventListener("click", undoAny);
+addEventListener("keydown", e => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || /input|textarea/i.test(e.target.tagName) || !$("#ar").hidden) return;
+  e.preventDefault(); if (e.shiftKey) History.redoOne(); else undoAny();
+});
 $("#btnInfo").addEventListener("click", () => { if (S.view !== "compose") renderAbout(); });
 $("#btnLocate").addEventListener("click", () => S.me && focusOn(S.me, 18));
 $("#btnFit").addEventListener("click", () => {
