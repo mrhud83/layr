@@ -390,6 +390,15 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-bottom > .ar-ctl, .ar-bottom > .ar-hint { transition: transform .35s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
 .hud-top, .rail, .panel, .fab-row { transition: transform .38s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
 .panel.dragging, .show-ui.dragging { transition: none !important; }
+.ar-btn { height: 46px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-radius: 999px; font: 600 14px/1 var(--font-ui); color: var(--text); }
+.ar-btn svg, .drop-btn svg { width: 17px; height: 17px; }
+.ar-btn:active, .drop-btn:active { transform: scale(.96); }
+.drop-btn, .ar-btn { transition: transform .12s; }
+#undoBtn { color: var(--amber); }
+/* no iOS copy/save callout or text selection while holding a tile to drag it */
+.obj, .obj *, .drag-ghost, .fab-row, .rail { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+.obj.pressing { transform: scale(.94); transition: transform .2s ease; }
+.obj { transition: transform .15s ease; }
 .drag-ghost { position: fixed; z-index: 3000; left: 0; top: 0; width: 76px; height: 76px; pointer-events: none; border-radius: 16px; overflow: hidden;
   background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 30px rgba(0, 0, 0, .3); display: grid; place-items: center; color: var(--amber);
   transition: transform .08s linear; will-change: transform; }
@@ -417,9 +426,9 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 </header>
 
 <nav class="rail frame" aria-label="Map tools">
+  <button id="undoBtn" type="button" aria-label="Undo" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
   <button id="btnLocate" type="button" aria-label="Center on my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
   <button id="btnFit" type="button" aria-label="Show all drops"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
-  <button id="btnScan" type="button" aria-label="Scan your surroundings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 15V10l4-3 4 3v5"/><path d="M6 12h12" opacity=".5"/></svg></button>
   <button id="btnLayer" type="button" aria-label="Switch map imagery"><span class="txt" id="layerLbl">MAP</span></button>
   <button id="btnTheme" type="button" aria-label="Switch between light and dark mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor"/></svg></button>
   <button id="btnInfo" type="button" aria-label="About this prototype"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
@@ -428,8 +437,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 <button class="show-ui frame" id="btnShow" type="button" hidden aria-label="Swipe up or tap to bring the interface back"><span class="grip"></span><span class="label">Swipe up</span></button>
 
 <div class="fab-row" id="fabRow">
-  <button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v12M1 7h12"/></svg>DROP</button>
-  <button class="undo-btn frame" id="undoBtn" type="button" aria-label="Undo" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg><span>UNDO</span></button>
+  <button class="drop-btn" id="dropBtn" type="button"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 1.5v11M1.5 7h11"/></svg>Drop</button>
+  <button class="ar-btn frame" id="arBtn" type="button" aria-label="Open the AR view of everything around you"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>AR</button>
 </div>
 
 <div class="cross" id="cross" hidden aria-hidden="true">
@@ -968,7 +977,7 @@ function renderCompose() {
     <div class="sec-head"><button class="back" data-act="cancel" type="button">‹ Cancel</button><span class="label" id="cPos">--</span></div>
     <div class="seg" role="group" aria-label="Drop type">${["model", "message", "route"].map(k => `<button type="button" data-act="kind" data-k="${k}" aria-pressed="${d.kind === k}">${KIND[k]}</button>`).join("")}</div>
     ${d.kind === "model" ? `<div class="pick-head"><span class="label">3D models</span><span class="label">${Object.keys(MODELS3D).length}</span></div>
-      <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy"><span>${v.name}</span></button>`).join("")}</div>
+      <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy" draggable="false"><span>${v.name}</span></button>`).join("")}</div>
       <div class="pick-head"><span class="label">Light markers</span><span class="label">${Object.keys(OBJECTS).length}</span></div>
       <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>
       <p class="note">Tap one and place it at the crosshair, or hold it and drag it straight onto the map.</p>` : ""}
@@ -1335,17 +1344,21 @@ addEventListener("keydown", e => { if (e.key.toLowerCase() === "h" && !/input|te
   }
   body.addEventListener("pointerdown", e => {
     const b = e.target.closest('.obj[data-act="obj"]'); if (!b || S.view !== "compose" || S.draft?.kind !== "model") return;
-    pick = { k: b.dataset.k, b, x0: e.clientX, y0: e.clientY, id: e.pointerId, active: false, mouse: e.pointerType === "mouse" };
-    if (!pick.mouse) pick.timer = setTimeout(() => lift(pick.x0, pick.y0), 260);
+    pick = { k: b.dataset.k, b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, id: e.pointerId, active: false, mouse: e.pointerType === "mouse" };
+    // touch: the tile sinks a little while you hold, then lifts into your finger after 0.2 s
+    if (!pick.mouse) { b.classList.add("pressing"); pick.timer = setTimeout(() => { b.classList.remove("pressing"); lift(pick.x, pick.y); }, 200); }
   });
   addEventListener("pointermove", e => {
     if (!pick || e.pointerId !== pick.id) return;
     if (pick.active) { place(e.clientX, e.clientY); return; }
+    pick.x = e.clientX; pick.y = e.clientY;
     const d = Math.hypot(e.clientX - pick.x0, e.clientY - pick.y0);
-    if (pick.mouse && d > 6) lift(e.clientX, e.clientY); else if (!pick.mouse && d > 10) { clearTimeout(pick.timer); pick = null; }
+    if (pick.mouse && d > 6) lift(e.clientX, e.clientY); else if (!pick.mouse && d > 12) { clearTimeout(pick.timer); pick.b.classList.remove("pressing"); pick = null; }
   });
   addEventListener("pointerup", e => { if (pick && e.pointerId === pick.id) end(true, e.clientX, e.clientY); });
-  addEventListener("pointercancel", e => { if (pick && e.pointerId === pick.id && !pick.active) end(false); });
+  addEventListener("pointercancel", e => { if (pick && e.pointerId === pick.id && !pick.active) { pick.b.classList.remove("pressing"); end(false); } });
+  body.addEventListener("contextmenu", e => { if (e.target.closest(".obj")) e.preventDefault(); });
+  body.addEventListener("dragstart", e => { if (e.target.closest(".obj")) e.preventDefault(); });
   // once lifted, the finger drags the tile, not the list or the page
   document.addEventListener("touchmove", e => { if (pick?.active) e.preventDefault(); }, { passive: false });
   document.addEventListener("touchend", e => { if (pick?.active) { const t = e.changedTouches[0]; end(true, t.clientX, t.clientY); } });
@@ -1823,7 +1836,9 @@ function cannonGame(d, scene, root, item, opt) {
       camP.setFromMatrixPosition(cam.matrixWorld);
       U.copy(camP); U.y -= .12;
       if (!seenU) { seenU = true; Uprev.copy(U); E.copy(U).add(V(2, 0, 2)); }
-      if (dt > 0) { const v = Math.hypot(U.x - Uprev.x, U.z - Uprev.z) / dt; speed += (v - speed) * Math.min(1, dt * 4); }
+      const ms = opt.motion?.();
+      if (ms != null) speed += (ms - speed) * Math.min(1, dt * 4);
+      else if (dt > 0) { const v = Math.hypot(U.x - Uprev.x, U.z - Uprev.z) / dt; speed += (v - speed) * Math.min(1, dt * 4); }
       Uprev.copy(U);
       still = speed < .3 ? still + dt : Math.max(0, still - dt * 3);
       // its idea of where you are lags behind you and can only move so fast, so walking makes it miss
@@ -1875,9 +1890,9 @@ function geoPlace(o, h, f, ox, oz) {
 // Elevation tiles are a few metres off at best, which is enough to float an object, so they only count
 // for real hills: fading in from 40 m to 120 m, capped at an 8% grade. Closer, it sits on your ground level.
 const objLift = o => { if (!XRS.terrain) return 0; const k = clamp((o.m - 40) / 80, 0, 1); return clamp(o.dz, -.08 * o.m, .08 * o.m) * k * k * (3 - 2 * k); };
-const placedHint = (o, compass) => compass
-  ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away, and locked.${S.sim ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
-  : "No compass reading, so it's straight ahead at its real distance. Tap Move it to set it by hand.";
+const placedHint = (o, compass, xr = true) => compass
+  ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away.${S.sim || !xr ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
+  : `No compass reading, so it's straight ahead at its real distance.${xr ? " Tap Move it to set it by hand." : ""}`;
 
 /* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -2082,7 +2097,8 @@ async function startCamera(d, permP) {
   showAR(d, "camera"); hint("Starting camera"); Compass.start();
   let stream; try { stream = await openCameraFeed(); } catch (e) { return startViewer(d, "Camera blocked or unavailable. Showing 3D preview."); }
   const perm = await permP, org = await objOrigin(d);
-  const rig = cameraRig(), built = buildObjectScene(d, rig.renderer); built.root.visible = false;
+  let motionSpeed = null;
+  const rig = cameraRig(), built = buildObjectScene(d, rig.renderer, { motion: () => motionSpeed?.() }); built.root.visible = false;
   let placed = false, raf = 0, frame = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
@@ -2092,7 +2108,7 @@ async function startCamera(d, permP) {
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z); built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass) + " If it floats, drag up or down to set it on the ground.");
+    hint(placedHint(org, compass, false) + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " To walk around it, get close and tap Quick Look." : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
   // Drag up or down to move it; it follows your finger.
@@ -2104,17 +2120,19 @@ async function startCamera(d, permP) {
     up = () => { dragY = null; };
   el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
   // walking: GPS moves you through the scene, smoothed, while the object stays where it was put
-  const meLocal = () => { const o = { m: dist(frame.g, S.me), brg: bearing(frame.g, S.me) }; return o.m < .3 ? { x: 0, z: 0 } : geoPlace({ ...o, m: o.m }, frame.h, frame.f, 0, 0); };
+  // walking still matters to the cannon: read it from the motion sensor, not GPS
+  let shake = 0; const onMotion = e => { const a = e.acceleration; if (!a || a.x == null) return; const m = Math.hypot(a.x, a.y, a.z); shake += (m - shake) * .08; };
+  addEventListener("devicemotion", onMotion); motionSpeed = () => clamp((shake - .35) * 1.4, 0, 3);
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; rig.step();
     if (!placed && rig.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) place(t, Compass.heading != null);
     else if (!placed && performance.now() - t0 > 4000) { place(t, false); hint(perm === "granted" ? "No motion data. The view can't turn with you." : "Motion access declined, so the view can't turn with you."); }
-    if (placed && S.me && !S.sim) { const q = meLocal(); rig.cam.position.x += (q.x - rig.cam.position.x) * .04; rig.cam.position.z += (q.z - rig.cam.position.z) * .04; }
+    // once it's on screen it stays put relative to the ground and your view: no GPS nudging after that
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
   AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
-    el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
+    removeEventListener("devicemotion", onMotion); el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
 }
 
 /* ---------- 3D preview with orbit ---------- */
@@ -2940,7 +2958,8 @@ async function startRouteCamera(d, permP) {
     }
     if (aligned) {
       // no WebXR translation here, so walking comes from GPS, smoothed
-      const q = rig.xz(S.me); cr.cam.position.x += (q.x - cr.cam.position.x) * .04; cr.cam.position.z += (q.z - cr.cam.position.z) * .04;
+      // routes follow GPS so you can walk them; the surroundings view stays locked once it appears
+      if (!scan) { const q = rig.xz(S.me); cr.cam.position.x += (q.x - cr.cam.position.x) * .04; cr.cam.position.z += (q.z - cr.cam.position.z) * .04; }
       rig.update(t, { x: cr.cam.position.x, z: cr.cam.position.z });
       Heading.cam = cr.cam; Heading.user = { x: cr.cam.position.x, z: cr.cam.position.z };
       if (rig.complete()) hint("Route complete");
@@ -2997,7 +3016,7 @@ function openScan() {
   if (touch && navigator.mediaDevices?.getUserMedia) return startRouteCamera(d, perm);
   startRouteViewer(d);
 }
-$("#btnScan").addEventListener("click", openScan);
+$("#arBtn").addEventListener("click", openScan);
 
 /* ================= boot ================= */
 importFromHash();

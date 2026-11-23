@@ -20,8 +20,10 @@ One HTML file. No build step, no backend, no keys.
 
 ## What's in it
 
+- AR, next to Drop, opens the AR view of everything around you. Undo sits at the top of the tool rail when there's something to undo.
+- On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it.
 - No labels float above objects. In New drop, "Add a sign" lets you write a short sign; it stands a foot to the side of the object at your eye height and turns to face you.
-- Drag a 3D model or marker from the picker straight onto the map (on touch, hold it a moment first). The panel and buttons slide away while you drag.
+- Drag a 3D model or marker from the picker straight onto the map (on touch, hold it for a fifth of a second, then drag). The panel and buttons slide away while you drag.
 - Drag any pin to move it. Select a route to drag its numbered waypoints. Every move can be undone from the toast.
 - Routes draw as one continuous line that rises and falls with the terrain at a height you set (0.9 m by default, 0 to 3 m).
 - Your floor (− and +) tells the line you're upstairs. It starts on your floor and eases down to the street. On iPhone, GPS altitude can guess it when you're inside a mapped building.
