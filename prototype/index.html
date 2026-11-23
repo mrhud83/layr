@@ -974,12 +974,13 @@ function renderAbout() {
       <div><dt>WebXR</dt><dd class="${S.xr ? "in" : ""}">${S.xr ? "AVAILABLE" : "NOT ON THIS DEVICE"}</dd></div>
       <div><dt>Best on</dt><dd>ANDROID CHROME</dd></div>
     </dl>
-    <p class="note">On Android with Chrome, objects lock to a detected floor plane with WebXR anchors. They stay put as you walk around them. On iPhone, objects and messages open in Apple's AR Quick Look, which uses ARKit to pin them to the real floor. Routes on iPhone use camera mode, which holds as you turn but follows GPS as you walk.</p>
+    <p class="note">On Android with Chrome, objects lock to a detected floor plane with WebXR anchors. They stay put as you walk around them. On iPhone, the browser reports turning but not position. Objects appear at their map spot from GPS and the compass, then your steps move you toward them. The camera view measures your lens and the picture's lag as you turn and tilt; Reset AR calibration below starts that over. Routes on iPhone follow GPS as you walk.</p>
     <p class="note">Routes are turned to match your compass, which is good to about 10 to 15°. The native app's VPS makes that precise. Terrain comes from public elevation tiles at about 5 m resolution. Drops are saved in this browser. Share one with the link button.</p>
     <p class="note">Scan shows building outlines from OpenStreetMap, so it works in the dark. On Android phones with a depth sensor it also builds a live point scan of what's around you. Route legs follow walkways from OpenStreetMap foot routing, and the blue line bends around buildings and scanned obstacles.</p>
     <p class="note">Precise VPS positioning needs a paid service and a pre-scanned site (MultiSet works in Android Chrome) or the native app with Google's Geospatial API. Until then, line outlines up with real walls using ⟲ ⟳ in Scan.</p>
     <p class="note">3D models: Poly Haven (CC0) and the Khronos glTF sample library. Fox model CC0 by PixelMannen; rigging and animation CC BY 4.0 by tomkranis; glTF conversion by AsoboStudio and scurest.</p>
-    <div class="btn-row" style="margin-top:14px"><button class="btn danger" data-act="reset" type="button">Clear all drops</button><button class="btn grow" data-act="back" type="button">Done</button></div>`;
+    <div class="btn-row" style="margin-top:14px"><button class="btn" data-act="lensreset" type="button">Reset AR calibration</button></div>
+    <div class="btn-row" style="margin-top:6px"><button class="btn danger" data-act="reset" type="button">Clear all drops</button><button class="btn grow" data-act="back" type="button">Done</button></div>`;
   summary();
 }
 
@@ -1270,6 +1271,7 @@ body.addEventListener("click", e => {
   else if (a === "clear") { S.draft.stroke = []; S.draft.marks = []; drawDraft(); }
   else if (a === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
   else if (a === "obj") { S.draft.model = b.dataset.k; const rr = MODELS3D[b.dataset.k]?.radius; if (rr && S.draft.radius < rr) { S.draft.radius = rr; $("#cRadius").value = rr; $("#cRadiusV").textContent = rr + " M"; drawDraft(); } body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
+  else if (a === "lensreset") { Lens.reset(); toast("AR calibration reset. Turn and tilt slowly once in AR to measure again."); }
   else if (a === "sign") { S.draft.signOn = !S.draft.signOn; renderCompose(); if (S.draft.signOn) $("#cSign")?.focus(); }
   else if (a === "road") { S.draft.road = !S.draft.road; b.setAttribute("aria-pressed", S.draft.road); toast(S.draft.road ? "A golden path will lead people to it in AR." : "No path."); }
   else if (a === "more") { S.draft.more = !S.draft.more; renderCompose(); }
@@ -1496,7 +1498,7 @@ function openDrop(id, force) {
 function showAR(d, mode) {
   $("#ar").hidden = false; $("#ar").classList.toggle("xr", mode === "xr");
   $("#arTitle").textContent = d.title;
-  $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · ROTATION ONLY", viewer: "3D PREVIEW" }[mode];
+  $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · TURN + STEPS", viewer: "3D PREVIEW" }[mode];
   const scan = d.id === "__scan";
   $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
@@ -2162,14 +2164,20 @@ async function startXR(d) {
    The result is saved, so it's right from the first frame next time. */
 const Lens = {
   f: store.get("layr.lens.f", null),      // focal length as a fraction of the video width
-  lat: store.get("layr.lens.lat", 50),    // picture lag behind the sensor, ms
+  fy: store.get("layr.lens.fy", null),    // focal length as a fraction of the video height, from tilting
+  lat: clamp(store.get("layr.lens.lat", 50), 0, 200),    // picture lag behind the sensor, ms
   n: 0,
-  save() { store.set("layr.lens.f", this.f); store.set("layr.lens.lat", this.lat); }
+  save() { store.set("layr.lens.f", this.f); store.set("layr.lens.fy", this.fy); store.set("layr.lens.lat", this.lat); },
+  reset() { this.f = this.fy = null; this.lat = 50; this.n = 0; this.save(); CamCal.pitch = 0; store.set("layr.pitch", 0); }
 };
 function videoFov() {
   const v = $("#arVideo"), vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return 62;
   const scale = Math.max(innerWidth / vw, innerHeight / vh), visH = innerHeight / scale;
-  if (Lens.f) return deg(2 * Math.atan(visH / 2 / (Lens.f * vw)));
+  // phone main cameras cover 58° to 80° along the long side; anything outside that is a bad measurement
+  const longFov = f => 2 * Math.atan(Math.max(vw, vh) / 2 / f), ok = f => { const a = deg(longFov(f)); return a > 58 && a < 80; };
+  const fyPx = Lens.fy && Lens.fy * vh, fxPx = Lens.f && Lens.f * vw;
+  if (fyPx && ok(fyPx)) return deg(2 * Math.atan(visH / 2 / fyPx));
+  if (fxPx && ok(fxPx)) return deg(2 * Math.atan(visH / 2 / fxPx));
   const L = rad(70), S = 2 * Math.atan(Math.tan(L / 2) * Math.min(vw, vh) / Math.max(vw, vh)), fovV = vh >= vw ? L : S;
   return deg(2 * Math.atan((visH / vh) * Math.tan(fovV / 2)));
 }
@@ -2187,10 +2195,24 @@ function lensTracker(onUpdate) {
   // turn about the camera's own vertical axis between two moments (small-angle rotation vector)
   function yawBetween(t0, t1) { const a = qAt(t0), b = qAt(t1); if (!a || !b) return null; qr.copy(qInv.copy(a).invert()).multiply(b); return 2 * qr.y * Math.sign(qr.w || 1); }
   function profile() {
-    cx.drawImage(v, 0, 0, W, H); const d = cx.getImageData(0, 0, W, H).data, p = new Float32Array(W); let m = 0;
-    for (let x = 0; x < W; x++) { let s = 0; for (let y = 8; y < H - 8; y++) { const i = (y * W + x) * 4; s += d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11; } p[x] = s; m += s; }
-    m /= W; let vr = 0; for (let x = 0; x < W; x++) { p[x] -= m; vr += p[x] * p[x]; } return { p, vr: vr / W };
+    cx.drawImage(v, 0, 0, W, H); const d = cx.getImageData(0, 0, W, H).data, p = new Float32Array(W), q = new Float32Array(H); let m = 0, mq = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4, l = d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11; if (y >= 8 && y < H - 8) p[x] += l; if (x >= 10 && x < W - 10) q[y] += l; }
+    for (let x = 0; x < W; x++) m += p[x]; m /= W; for (let y = 0; y < H; y++) mq += q[y]; mq /= H;
+    let vr = 0; for (let x = 0; x < W; x++) { p[x] -= m; vr += p[x] * p[x]; } for (let y = 0; y < H; y++) q[y] -= mq;
+    return { p, q, vr: vr / W };
   }
+  function slideRows(a, b) {
+    const R = 10, err = new Float32Array(2 * R + 1);
+    for (let s = -R; s <= R; s++) { let e = 0, n = 0; for (let y = R; y < H - R; y++) { const dd = b[y] - a[y - s]; e += dd * dd; n++; } err[s + R] = e / n; }
+    let bi = 0; for (let i = 1; i < err.length; i++) if (err[i] < err[bi]) bi = i;
+    if (bi === 0 || bi === err.length - 1) return null;
+    const l = err[bi - 1], c = err[bi], r = err[bi + 1], den = l - 2 * c + r;
+    const sorted = [...err].sort((x, y) => x - y); if (c > sorted[Math.floor(err.length / 2)] * .5) return null;
+    return bi - R + (den > 0 ? .5 * (l - r) / den : 0);
+  }
+  // tilt about the camera's own side axis between two moments
+  function pitchBetween(t0, t1) { const a = qAt(t0), b = qAt(t1); if (!a || !b) return null; qr.copy(qInv.copy(a).invert()).multiply(b); return 2 * qr.x * Math.sign(qr.w || 1); }
+  let vpairs = [];
   // sideways slide between two column profiles, in sample pixels, with sub-pixel refinement
   function slide(a, b) {
     const R = 14, err = new Float32Array(2 * R + 1);
@@ -2215,6 +2237,10 @@ function lensTracker(onUpdate) {
       if (!best || score > best.score) best = { L, k, score, inl, n: rows.length };
     }
     if (!best || best.inl < 15 || best.score < .5) return;
+    // vertical focal length from tilting, at the lag just found
+    if (vpairs.length >= 20) { const ks = vpairs.map(([ph, sv]) => Math.abs(sv / ph)).sort((a, b) => a - b), ky = ks[ks.length >> 1];
+      const inl = vpairs.filter(([ph, sv]) => Math.abs(Math.abs(sv) - ky * Math.abs(ph)) < 1).length;
+      if (inl / vpairs.length > .5) { const fy = ky / H; Lens.fy = Lens.fy ? Lens.fy * .7 + fy * .3 : fy; } }
     const f = best.k / W; // focal length as a fraction of the picture width
     Lens.f = Lens.f ? Lens.f * .7 + f * .3 : f; Lens.lat = Math.round(Lens.n ? Lens.lat * .7 + best.L * .3 : best.L); Lens.n++; Lens.save(); onUpdate?.(best);
   }
@@ -2224,7 +2250,9 @@ function lensTracker(onUpdate) {
     const pr = profile(); if (pr.vr < 40) { prev = null; return; } // too dark or featureless to measure
     if (prev) { const s = slide(prev.p, pr.p), th = yawBetween(prev.t - Lens.lat, now - Lens.lat);
       if (s != null && th != null && Math.abs(th) > rad(.4) && Math.abs(th) < rad(9)) { pairs.push({ t0: prev.t, t1: now, s }); if (pairs.length > 160) pairs.shift(); } }
-    prev = { t: now, p: pr.p };
+    if (prev && prev.q) { const sv = slideRows(prev.q, pr.q), ph = pitchBetween(prev.t - Lens.lat, now - Lens.lat);
+      if (sv != null && ph != null && Math.abs(ph) > rad(.6) && Math.abs(ph) < rad(9)) { vpairs.push([ph, sv]); if (vpairs.length > 120) vpairs.shift(); } }
+    prev = { t: now, p: pr.p, q: pr.q };
     if (now - lastFit > 1500 && pairs.length >= 30) { lastFit = now; fit(); }
   }
   const requestVideoFrame = () => v.requestVideoFrameCallback ? v.requestVideoFrameCallback(n => tick(n)) : requestAnimationFrame(tick);
@@ -2234,7 +2262,7 @@ function lensTracker(onUpdate) {
 function cameraRig() {
   const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(videoFov(), innerWidth / innerHeight, .05, 2000);
   const fitFov = () => { cam.fov = videoFov(); cam.updateProjectionMatrix(); }; $("#arVideo").addEventListener("loadedmetadata", fitFov); $("#arVideo").addEventListener("resize", fitFov);
-  cam.position.set(0, 1.45, 0); CamCal.on = true;
+  cam.position.set(0, 1.35, 0); CamCal.on = true; // a phone held out to look through sits about 1.35 m up
   const qp = new THREE.Quaternion(), xAxis = new THREE.Vector3(1, 0, 0), tmpQ = new THREE.Quaternion(); let ori = null;
   const lens = lensTracker(() => fitFov());
   const onOri = e => { if (e.alpha == null) return; ori = e; lens.push(performance.now(), oriQuat(tmpQ, e.alpha, e.beta, e.gamma)); };
@@ -2744,7 +2772,7 @@ function routeRig(d, o) {
     if (XRS.view === "ground") {
       // the line on the ground: no raised tube, no stems, no shadow trace
       const k2 = o.preview ? 4 * A.s : 1, spine = new THREE.CatmullRomCurve3(prof.map(p => at(p, .02 * k2)), false, "centripetal");
-      band = ribbon(spine.getSpacedPoints(clamp(Math.round(total / (o.preview ? 2 : .5)), 8, 6000)), COL.path, o.preview ? .028 : .32);
+      band = ribbon(spine.getSpacedPoints(clamp(Math.round(total / (o.preview ? 2 : .5)), 8, 6000)), COL.path, o.preview ? .028 : .45);
       root.add(band); if (gmap.size) drape(band, null);
       path.visible = glow.visible = stems.visible = trace.visible = false;
     }
@@ -2885,7 +2913,7 @@ function routeRig(d, o) {
     } else for (let k = 0; k <= 24; k++) { const f = k / 24, p = a.clone().lerp(b, f); p.y = a.y + (b.y - a.y) * f * f * (3 - 2 * f); pts.push(p); }
     live = new THREE.Group();
     // one path: this piece runs from you into the route, and the route itself is hidden behind where it joins
-    if (onGround) { const rb = ribbon(pts, COL.path, o.preview ? .028 : .32); if (gmap.size) drape(rb, user); live.add(rb); root.add(live); return; }
+    if (onGround) { const rb = ribbon(pts, COL.path, o.preview ? .028 : .45); if (gmap.size) drape(rb, user); live.add(rb); root.add(live); return; }
     live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube, 6, false), new THREE.MeshBasicMaterial({ color: lc(COL.path), transparent: true, opacity: .95, depthWrite: false })));
     root.add(live); return;
     const k = o.preview ? A.s * 6 : 1;
