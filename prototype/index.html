@@ -1899,26 +1899,26 @@ async function startXR(d) {
 
 /* ---------- camera + motion sensors (no WebXR). Rotation only ---------- */
 /* The 3D camera must see exactly what the video shows, or the virtual ground tilts away from the real one.
-   Phone main cameras cover about 68° on the long side of the sensor; object-fit: cover crops the rest. */
+   Phone main cameras cover about 70° on the long side of the sensor; object-fit: cover crops the rest. */
 function videoFov() {
   const v = $("#arVideo"), vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return 62;
-  const L = rad(68), S = 2 * Math.atan(Math.tan(L / 2) * Math.min(vw, vh) / Math.max(vw, vh)), fovV = vh >= vw ? L : S;
+  const L = rad(70), S = 2 * Math.atan(Math.tan(L / 2) * Math.min(vw, vh) / Math.max(vw, vh)), fovV = vh >= vw ? L : S;
   const scale = Math.max(innerWidth / vw, innerHeight / vh), f = (innerHeight / scale) / vh;
   return deg(2 * Math.atan(f * Math.tan(fovV / 2)));
 }
 function cameraRig() {
   const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(videoFov(), innerWidth / innerHeight, .05, 2000);
   const fitFov = () => { cam.fov = videoFov(); cam.updateProjectionMatrix(); }; $("#arVideo").addEventListener("loadedmetadata", fitFov); $("#arVideo").addEventListener("resize", fitFov);
-  cam.position.set(0, 1.45, 0);
-  const target = new THREE.Quaternion(); let ori = null;
+  cam.position.set(0, 1.45, 0); CamCal.on = true;
+  const target = new THREE.Quaternion(), qp = new THREE.Quaternion(), xAxis = new THREE.Vector3(1, 0, 0); let ori = null;
   const onOri = e => { if (e.alpha != null) ori = e; };
   addEventListener("deviceorientation", onOri);
   const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; fitFov(); };
   addEventListener("resize", onResize);
   return {
     renderer, cam, hasOri: () => !!ori,
-    step() { if (ori) { oriQuat(target, ori.alpha, ori.beta, ori.gamma); cam.quaternion.slerp(target, .85); } cam.updateMatrixWorld(); },
-    stop() { removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
+    step() { if (ori) { oriQuat(target, ori.alpha, ori.beta, ori.gamma); target.multiply(qp.setFromAxisAngle(xAxis, CamCal.pitch)); cam.quaternion.slerp(target, .85); } cam.updateMatrixWorld(); },
+    stop() { CamCal.on = false; removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
   };
 }
 async function openCameraFeed() {
@@ -2298,16 +2298,16 @@ function routeRig(d, o) {
   const api = { A, xz, at, gy: ground, atE: (p, e, lift = 0) => { const q = xz(p); return V(q.x, A.floorY + (relE(e, dist(A.geo, p)) * A.vex - A.up) * A.s + lift, q.z); } };
   /* Ground view: the route as a soft glowing band lying on the ground, with a bright thin core and
      faint chevrons drifting forward. In WebXR it drapes onto the surfaces the camera has found. */
-  const RIB_V = `attribute float aS; attribute float aV; varying float vS; varying float vV;
-    void main(){ vS = aS; vV = aV; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
-  const RIB_F = `uniform vec3 uCol; uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vV;
+  const RIB_V = `attribute float aS; attribute float aV; varying float vS; varying float vV; varying float vD;
+    void main(){ vS = aS; vV = aV; vec4 mv = modelViewMatrix * vec4(position, 1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }`;
+  // steady and bright: a solid core that reads on sunny pavement, a soft glow, a gentle fade with distance
+  const RIB_F = `uniform vec3 uCol; uniform float uStart; uniform float uFar; varying float vS; varying float vV; varying float vD;
     void main(){
-      if (vS > uReveal) discard;
+      if (vS < uStart) discard;
       float x = abs(vV);
-      float core = exp(-x * x * 60.), glow = exp(-x * x * 5.) * .28;
-      float pulse = .72 + .28 * sin(uTime * 1.3);
-      float a = (core * .75 + glow) * pulse * (1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS))) * (1. - smoothstep(.85, 1., x));
-      gl_FragColor = vec4(uCol * a, a);
+      float core = 1. - smoothstep(.22, .34, x), glow = exp(-x * x * 4.) * .45 * (1. - smoothstep(.8, 1., x));
+      float a = clamp(core + glow, 0., 1.) * (1. - smoothstep(uFar * .2, uFar, vD) * .45);
+      gl_FragColor = vec4(mix(uCol, vec3(1., .93, .8), core * .35), a);
     }`;
   const shared = { uTime: { value: 0 } };
   function ribbon(pts3, color, width, s0) {
@@ -2322,9 +2322,8 @@ function routeRig(d, o) {
     base.set(pos);
     const idx = []; for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("aS", new THREE.BufferAttribute(aS, 1)); g.setAttribute("aV", new THREE.BufferAttribute(aV, 1)); g.setIndex(idx);
-    const U = { uTime: shared.uTime, uProg: { value: -1e5 }, uReveal: { value: 1e9 }, uCol: { value: lc(color) } };
-    const light = o.preview && document.documentElement.dataset.theme !== "dark";
-    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: U, vertexShader: RIB_V, fragmentShader: RIB_F, transparent: true, depthWrite: false, blending: light ? THREE.NormalBlending : THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    const U = { uStart: { value: -1e5 }, uFar: { value: o.preview ? 12 : 150 }, uCol: { value: lc(color) } };
+    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: U, vertexShader: RIB_V, fragmentShader: RIB_F, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
     m.frustumCulled = false; m.renderOrder = 5; m.userData = { U, base };
     return m;
   }
@@ -2410,7 +2409,6 @@ function routeRig(d, o) {
       float tw = step(.955, hs) * smoothstep(.45, 0., length(fract(g) - .5)) * (.5 + .5 * sin(uTime * 5. + hs * 60.));
       vec3 c = deep + tint * aur * (.45 + .5 * arc) + ribCol * rib * 1.2 + vec3(.6, .9, 1.) * pulse * .6 + mix(vec3(1.), hue(hs), .5) * tw * 1.3;
       if (!gl_FrontFacing) c *= .55;
-      c *= 1. - .6 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
       // a little see-through: the aurora and ribs are solid, the dark gaps let the world show
       float alpha = clamp(.42 + aur * .4 + rib * .5 + tw + pulse * .2, 0., .92) * (gl_FrontFacing ? 1. : .7);
       alpha *= 1. - smoothstep(60., 160., vD) * .5;
@@ -2423,7 +2421,6 @@ function routeRig(d, o) {
       float ch = fract((vS - uTime * 2.5) / 1.5 + x * .35);
       float chev = smoothstep(0., .05, ch) * (1. - smoothstep(.08, .18, ch));
       vec3 c = vec3(.2, .7, 1.) * chev * .55 * (1. - x * .6) + vec3(1., .66, .16) * smoothstep(.8, 1., x) * .55;
-      c *= 1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
       gl_FragColor = vec4(c, 1.);
     }`;
   function buildTunnel() {
@@ -2483,11 +2480,11 @@ function routeRig(d, o) {
     const onR = bd < ON;
     if (onR) progress = Math.max(progress, prof[bi].s);
     if (onR === off) { off = !onR; o.onRouteChange?.(onR, bd / A.s); }
-    if (onR) { const along = []; for (let i = bi; i < prof.length && prof[i].s <= prof[bi].s + 25; i++) along.push(i); track = { p: prof[along.at(-1)], along }; }
+    if (onR) { const along = []; for (let i = bi; i < prof.length && prof[i].s <= prof[bi].s + 25; i++) along.push(i); track = { p: prof[along.at(-1)], along, s: prof[along.at(-1)].s }; }
     else {
       let ri = -1, rd = Infinity;
       for (let i = 0; i < pl.length; i++) { if (prof[i].s < progress) continue; const dd = Math.hypot(pl[i].x - user.x, pl[i].z - user.z); if (dd < rd) { rd = dd; ri = i; } }
-      track = ri >= 0 ? { p: prof[ri] } : null;
+      track = ri >= 0 ? { p: prof[ri], s: prof[ri].s } : null;
     }
     const nx = wps.findIndex(w => w.frac * total > progress + 3); next = nx < 0 ? wps.length : nx;
   }
@@ -2497,12 +2494,12 @@ function routeRig(d, o) {
     const onGround = XRS.view === "ground", hv = onGround ? .02 * (o.preview ? 4 * A.s : 1) : A.hover;
     const a = V(user.x, userGround() + (onGround ? hv : A.hover * .7), user.z), b = at(tgt.p, hv);
     if (a.distanceTo(b) < .05) return;
-    // on the route: the blue line runs ahead along the route itself.
+    // on the route: the path runs from you along the route itself.
     // off it: bend around buildings and scanned obstacles back to the route, else go straight
     const plan = !tgt.along && o.planner && o.planner({ x: a.x, z: a.z }, { x: b.x, z: b.z }, t);
     let pts = [];
     if (tgt.along) {
-      const curve = new THREE.CatmullRomCurve3([a, ...tgt.along.map(i => at(prof[i], A.hover))], false, "centripetal", .5);
+      const curve = new THREE.CatmullRomCurve3([a, ...tgt.along.map(i => at(prof[i], hv))], false, "centripetal", .5);
       pts = curve.getSpacedPoints(Math.max(16, tgt.along.length * 2));
     } else if (plan) {
       const cum = [0]; for (let k = 1; k < plan.length; k++) cum.push(cum[k - 1] + Math.hypot(plan[k].x - plan[k - 1].x, plan[k].z - plan[k - 1].z));
@@ -2510,8 +2507,10 @@ function routeRig(d, o) {
       pts = curve.getSpacedPoints(Math.max(16, Math.round(tot * 2)));
     } else for (let k = 0; k <= 24; k++) { const f = k / 24, p = a.clone().lerp(b, f); p.y = a.y + (b.y - a.y) * f * f * (3 - 2 * f); pts.push(p); }
     live = new THREE.Group();
-    if (onGround) { const rb = ribbon(pts, COL.live, o.preview ? .02 : .22); if (gmap.size) drape(rb, user); live.add(rb); root.add(live); return; }
-    live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube * .7, 5, false), new THREE.MeshBasicMaterial({ color: lc(COL.live), transparent: true, opacity: .95, depthWrite: false })));
+    // one path: this piece runs from you into the route, and the route itself is hidden behind where it joins
+    if (onGround) { const rb = ribbon(pts, COL.path, o.preview ? .028 : .32); if (gmap.size) drape(rb, user); live.add(rb); root.add(live); return; }
+    live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube, 6, false), new THREE.MeshBasicMaterial({ color: lc(COL.path), transparent: true, opacity: .95, depthWrite: false })));
+    root.add(live); return;
     const k = o.preview ? A.s * 6 : 1;
     const dash = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p, k) => V(p.x, (a.y - A.hover * .7) + ((b.y - A.hover) - (a.y - A.hover * .7)) * k / (pts.length - 1), p.z))), new THREE.LineDashedMaterial({ color: lc(COL.live), dashSize: .2 * k, gapSize: .15 * k, transparent: true, opacity: .5 }));
     dash.computeLineDistances(); live.add(dash);
@@ -2538,13 +2537,14 @@ function routeRig(d, o) {
       if (revealT == null) revealT = t;
       // the line draws itself out from the start, then stays
       const k = clamp((t - revealT) / 1.8, 0, 1), e = 1 - Math.pow(1 - k, 2);
-      [path, glow].forEach(m => { const n = m.geometry.index.count; m.geometry.setDrawRange(0, Math.floor(n * e / 3) * 3); });
+      const from = user && reroute && track && k >= 1 ? clamp(track.s / total, 0, 1) : 0;
+      [path, glow].forEach(m => { const n = m.geometry.index.count, a0 = Math.floor(n * from / 3) * 3; m.geometry.setDrawRange(a0, Math.max(0, Math.floor(n * e / 3) * 3 - a0)); });
       stems.geometry.setDrawRange(0, Math.floor(stems.geometry.attributes.position.count * e / 2) * 2);
       trace.geometry.setDrawRange(0, Math.floor(trace.geometry.attributes.position.count * e));
       wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
       paintTunnel(t, e);
       shared.uTime.value = t;
-      if (band) { band.userData.U.uProg.value = progress; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }
+      if (band) { band.userData.U.uStart.value = user && reroute && track && k >= 1 ? track.s : -1e5; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }
       if (user) {
         if (reroute) follow(user);
         else { const w = wps[next]; if (w) { const q = xz(w.p); if (Math.hypot(q.x - user.x, q.z - user.z) / A.s < o.reach) next = Math.min(next + 1, wps.length); } }
@@ -2595,7 +2595,7 @@ function steadyPosition() {
   let w = 0, la = 0, ln = 0; fx.forEach(f => { const k = 1 / Math.max(f.acc, 3) ** 2; w += k; la += f.lat * k; ln += f.lng * k; });
   return { lat: la / w, lng: ln / w };
 }
-function routeHint(on, m) { hint(on ? "On the route. Follow the blue line." : `Off the route by ${Math.round(m)} m. The blue line takes you back to the nearest point ahead.`); }
+function routeHint(on, m) { hint(on ? "On the route. Follow the line." : `Off the route by ${Math.round(m)} m. The line now starts where you are and leads you back on.`); }
 async function routeOrigin(d) {
   let geo = steadyPosition(), snapped = null;
   // Standing at a stop? GPS is off by metres but the stop is exact, so start from the stop.
@@ -2646,16 +2646,24 @@ const Heading = {
   }
 };
 $("#aimBtn").addEventListener("click", () => Heading.aim());
-// drag sideways anywhere on the AR view to turn the route (about 1° per 6 px)
+// drag sideways anywhere on the AR view to turn the route (about 1° per 6 px).
+// In camera mode, drag up or down to sink or lift the ground until it matches the real one; it's remembered.
+const CamCal = {
+  pitch: store.get("layr.pitch", 0), on: false,
+  nudge(d) { this.pitch = clamp(this.pitch + d, -rad(12), rad(12)); store.set("layr.pitch", this.pitch); hint(`Ground level ${this.pitch >= 0 ? "+" : "−"}${Math.abs(deg(this.pitch)).toFixed(1)}°. Saved for next time.`); }
+};
 (() => {
-  let x0 = null, acc = 0, t = 0;
+  let x0 = null, y0 = null, axis = null, acc = 0, t = 0;
   const el = $("#ar");
-  el.addEventListener("pointerdown", e => { if (e.target.closest("button") || !Heading.rig || $("#arHdgCtl").hidden) return; x0 = e.clientX; acc = 0; });
+  el.addEventListener("pointerdown", e => { if (e.target.closest("button") || !Heading.rig || $("#arHdgCtl").hidden) return; x0 = e.clientX; y0 = e.clientY; axis = null; acc = 0; });
   el.addEventListener("pointermove", e => {
-    if (x0 == null) return; acc += (e.clientX - x0) / 6; x0 = e.clientX;
+    if (x0 == null) return;
+    if (!axis) { const dx = Math.abs(e.clientX - x0), dy = Math.abs(e.clientY - y0); if (Math.max(dx, dy) < 8) return; axis = dy > dx && CamCal.on ? "y" : "x"; }
+    if (axis === "y") { const rig = Heading.cam; const per = rad(rig?.fov || 62) / innerHeight; CamCal.nudge((e.clientY - y0) * per); y0 = e.clientY; return; }
+    acc += (e.clientX - x0) / 6; x0 = e.clientX;
     const now = performance.now(); if (now - t > 90 && Math.abs(acc) >= 1) { t = now; Heading.nudge(-acc); acc = 0; }
   });
-  const end = () => { if (x0 != null && Math.abs(acc) >= .5) Heading.nudge(-acc); x0 = null; acc = 0; };
+  const end = () => { if (x0 != null && axis === "x" && Math.abs(acc) >= .5) Heading.nudge(-acc); x0 = null; acc = 0; axis = null; };
   el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
 })();
 $("#rotL").addEventListener("click", () => Heading.nudge(-3));
@@ -2708,7 +2716,7 @@ async function startRouteXR(d) {
       rig.startAt({ x: camPos.x, z: camPos.z }); aligned = true; wantAlign = false;
       Heading.bind(rig, hd.compass ? "Compass" : "No compass");
       if (scan) hint((scanner ? "Depth scan on. " : "No depth scan on this phone. ") + (rig.status || "Loading outlines…") + " Use ⟲ ⟳ to line them up with real walls.");
-      else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The blue line leads to the next stop. If it looks off, face where the stop really is and tap Aim, or walk a few steps and it corrects itself." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways."));
+      else hint((origin.snapped != null ? `Starting from stop ${origin.snapped + 1}. ` : "") + (hd.compass ? "The line leads to the next stop. If it looks off, face where the stop really is and tap Aim, or walk a few steps and it corrects itself." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways."));
     }
     Heading.cam = xrCam; Heading.user = { x: camPos.x, z: camPos.z };
     if (aligned) {
@@ -2741,7 +2749,7 @@ async function startRouteCamera(d, permP) {
     cr.cam.position.x = 0; cr.cam.position.z = 0;
     rig.setAlign({ geo: origin.geo, h: hd.h, f: { x: f.x, z: f.z }, r: { x: -f.z, z: f.x }, ox: 0, oz: 0, floorY: 0, e0: origin.e, userE: origin.e, s: 1, vex: 1, hover: AGL.v, pole: 1.3 });
     rig.startAt({ x: 0, z: 0 }); aligned = true; Heading.bind(rig, hd.compass ? "Compass" : "No compass");
-    hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned by compass, which can be 15° off. If a stop looks off, face where it really is and tap Aim, or drag sideways." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways to turn the route.");
+    hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned by compass, which can be 15° off. Drag sideways to turn the path, up or down if the ground sits too high." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways to turn the route.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
   const loop = () => {
@@ -2787,7 +2795,7 @@ function startRouteViewer(d, note) {
   if (near()) rig.startAt(rig.xz(S.me));
   AGL.cb = v => rig.setHover(v * .12); AGL.set(AGL.v);
   $("#arRealign").onclick = () => near() && rig.startAt(rig.xz(S.me));
-  hint(note || (scan ? "Buildings around you from map data, with nearby drops. Drag to orbit." : `${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`));
+  hint(note || (scan ? "Buildings around you from map data, with nearby drops. Drag to orbit." : `${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The line runs from you to the next stop." : "Drag to orbit."}`));
   let raf = 0;
   const loop = () => {
     raf = requestAnimationFrame(loop); orbit.step(); const t = performance.now() / 1000;

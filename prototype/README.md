@@ -23,9 +23,11 @@ One HTML file. No build step, no backend, no keys.
 - Drag any pin to move it. Select a route to drag its numbered waypoints. Every move can be undone from the toast.
 - Routes draw as one continuous line that rises and falls with the terrain at a height you set (0.9 m by default, 0 to 3 m).
 - Your floor (− and +) tells the line you're upstairs. It starts on your floor and eases down to the street. On iPhone, GPS altitude can guess it when you're inside a mapped building.
-- Routes open in ground view: the path is a soft band on the ground that slowly pulses, with no raised line or stems. On Android, the band drapes onto the surfaces the camera finds as you look ahead (within 40 m); farther out it follows the elevation model. The view button cycles Ground, Line (raised at the line height) and Tunnel.
+- One path: the orange line starts where you stand and runs ahead along the route; the part behind you is hidden. Step off and it re-plans from where you are back onto the route.
+- Routes open in ground view: the path is a bright, steady band on the ground that fades a little with distance, with no raised line or stems. On Android, the band drapes onto the surfaces the camera finds as you look ahead (within 40 m); farther out it follows the elevation model. The view button cycles Ground, Line (raised at the line height) and Tunnel.
 - Tunnel view sweeps a slightly see-through arch along the route: shifting rainbow aurora, colour-cycling ribs, amber ribs every 3 m, a pulse that runs ahead, and a see-through floor so you can watch your step.
 - Terrain (next to Your floor) turns elevation off, so everything sits flat at your ground level. Within 40 m the ground is always flat at your level.
+- iPhone camera mode: drag up or down to sink or lift the ground until it matches the real one. It's saved.
 - The eye button in AR hides every control; tap it again to bring them back.
 - X-ray shows the ground as a light green wire mesh from the elevation tiles, plus building shells and paths.
 - Laser cannon: an interactive drop (opens from up to 150 m). It turns to follow you and fires red bolts that fly at 16 m/s, so a far cannon gives you more time. Keep moving and it lags and misses. Stand still and it locks on and fires once or twice a second. Ten hits and the view closes. Thin stems drop from the line to the ground. A cyan leg runs from you to the next waypoint and updates as you walk.
