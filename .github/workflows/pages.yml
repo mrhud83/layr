@@ -23,5 +23,14 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: prototype
-      - id: deployment
+      # GitHub sometimes can't find the artifact it just uploaded; wait and try again
+      - id: first
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.first.outcome == 'failure'
+        run: sleep 20
+      - id: second
+        if: steps.first.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+      - id: deployment
+        run: echo "page_url=${{ steps.first.outputs.page_url || steps.second.outputs.page_url }}" >> "$GITHUB_OUTPUT"
