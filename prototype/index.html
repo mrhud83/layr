@@ -2161,9 +2161,11 @@ function xrayLayer(data, opt) {
     if (opt.beacons) for (const d of S.drops) {
       const p = d.kind === "route" ? d.points[0] : d, m = dist(api.A.geo, p); if (m > opt.radius) continue;
       const base = api.at(p, 0), hgt = opt.preview ? .35 : 6;
-      g.add(seg(base, base.clone().add(V(0, hgt, 0)), 0xFFB020, .8));
+      // the pillar starts above the object so it doesn't run through it
+      const top0 = opt.preview || d.kind === "route" ? 0 : (MODELS3D[d.model]?.h || 1.2) + .3;
+      g.add(seg(base.clone().add(V(0, top0, 0)), base.clone().add(V(0, top0 + hgt, 0)), 0xFFB020, .8));
       const ring = circle(opt.preview ? .04 : .6, 0xFFB020, .8); ring.position.copy(base); g.add(ring);
-      const l = labelSprite(0xFFB020, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
+      const l = labelSprite(0xFFB020, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += top0 + hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
     }
     if (opt.obstacles) opt.obstacles.polys = polys;
     return g;
@@ -2265,6 +2267,23 @@ function makePlanner(obs) {
 
 function routeRig(d, o) {
   const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
+  /* Nearby drops as the real objects, standing on the ground at their map spot. Each one is placed
+     the moment it's built and never moves on its own; only realigning the whole scene moves it. */
+  const objRoot = new THREE.Group(), objs = new Map(); root.add(objRoot);
+  if (!o.preview) { scene.add(new THREE.HemisphereLight(0xffffff, 0x606060, 1.6)); const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(2, 5, 1); scene.add(sun); }
+  function placeObjects() {
+    if (o.preview) return;
+    for (const dd of S.drops) {
+      if (dd.kind === "route" || dist(A.geo, dd) > 150) continue;
+      let it = objs.get(dd.id);
+      if (!it) {
+        const item = dd.kind === "model" && MODELS3D[dd.model] ? makeModel(dd) : makeObject(dd);
+        item.label.visible = false; // the beacon above it carries the name
+        const g = new THREE.Group(); g.add(item.obj); objRoot.add(g); it = { item, g }; objs.set(dd.id, it);
+      }
+      const q = xz(dd); it.g.position.set(q.x, ground(dd), q.z); it.g.rotation.y = Math.atan2(A.ox - q.x, A.oz - q.z);
+    }
+  }
   const prof = (d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }))).map(p => ({ ...p }));
   // strip roof and tree bumps, then smooth with a 5-point moving average (about 25 m), light enough to keep real hills
   { const raw = openLine(prof.map(p => p.e), 2); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
@@ -2349,6 +2368,7 @@ function routeRig(d, o) {
   function rebuild() {
     band = drop(band); path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); extra = drop(extra); wps.forEach(w => drop(w.g)); wps = [];
     if (o.extras) { extra = o.extras(api); extra.visible = XRS.xray; root.add(extra); }
+    placeObjects();
     if (o.noPath) { built = true; return; }
     const pts = prof.map(p => at(p, A.hover));
     pl = prof.map(p => xz(p));
@@ -2533,6 +2553,7 @@ function routeRig(d, o) {
     startAt(user) { let best = 0, bm = Infinity; wps.forEach((w, i) => { const q = xz(w.p), m = Math.hypot(q.x - user.x, q.z - user.z); if (m < bm) { bm = m; best = i; } }); next = best; progress = 0; off = false; },
     complete: () => built && !o.noPath && next >= wps.length,
     update(t, user) {
+      if (built) objs.forEach(it => it.item.upd(t, null));
       if (!built || o.noPath) return;
       if (revealT == null) revealT = t;
       // the line draws itself out from the start, then stays
