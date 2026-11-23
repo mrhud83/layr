@@ -3362,10 +3362,19 @@ const Finder = {
   pushH(h) { h = (h % 360 + 360) % 360; if (this.hdg == null) this.hdg = h; else { const dd = ((h - this.hdg + 540) % 360) - 180; this.hdg = (this.hdg + dd * .2 + 360) % 360; } },
   // in a pocket the phone faces anywhere, so use the direction you're walking instead
   heading() { if (this.pocket && S.course != null && S.speed > .6) return S.course; return this.hdg ?? S.course ?? 0; },
-  target() { const d = this.d; return d.kind === "route" ? d.points.reduce((a, p) => dist(S.me, p) < dist(S.me, a) ? p : a) : { lat: d.lat, lng: d.lng }; },
+  // a route leads you along itself to its last stop; anything else is the drop's own spot
+  target() { const d = this.d; return d.kind === "route" ? d.points[d.points.length - 1] : { lat: d.lat, lng: d.lng }; },
   async plan() {
     if (!S.me) return; const to = this.target(), from = { lat: S.me.lat, lng: S.me.lng };
-    this.path = [from, to]; this.planFrom = from;
+    this.planFrom = from;
+    if (this.d.kind === "route") {
+      // join the route at its nearest point ahead, then follow it; Sidewalks walks you to that join point
+      const base = densify(routeBase(this.d), 5); let bi = 0, bd = Infinity; base.forEach((q, i) => { const m = dist(from, q); if (m < bd) { bd = m; bi = i; } });
+      const rest = base.slice(bi); this.path = [from, ...rest];
+      if (!this.direct && bd > 25) { const lead = await walkPath(from, rest[0]); if (this.d) this.path = [...lead, ...rest.slice(1)]; }
+      return;
+    }
+    this.path = [from, to];
     if (this.direct) return; // straight there: no sidewalks
     const p = await walkPath(from, to); if (this.d && !this.direct) this.path = p;
   },
@@ -3378,8 +3387,8 @@ const Finder = {
     for (let i = bi; i < P.length - 1; i++) left += dist(P[i], P[i + 1]);
     let acc = 0; for (let i = bi; i < P.length - 1; i++) { acc += dist(P[i], P[i + 1]); if (acc > 12) { aim = P[i + 1]; break; } }
     const straight = dist(me, this.target());
-    if (straight < 15) aim = this.target();
-    return { brg: bearing(me, aim), left: Math.max(straight, Math.min(left, straight * 3 + 60)), straight };
+    if (straight < 15 && this.d.kind !== "route") aim = this.target();
+    return { brg: bearing(me, aim), left: this.d.kind === "route" ? left : Math.max(straight, Math.min(left, straight * 3 + 60)), straight };
   },
   open(d) {
     this.d = d; this.path = null; this.needle = 0; this.lastSay = ""; this.surround = null;
@@ -3414,9 +3423,10 @@ const Finder = {
     $("#fNeedle").style.transform = `rotate(${this.needle}deg)`; $("#fDial").style.transform = `rotate(${this.dial}deg)`;
     const on = Math.abs(rel) < 15; $("#finder").classList.toggle("on-course", on);
     if (!g) { $("#fDist").textContent = "--"; $("#fSub").textContent = "Waiting for your location"; return; }
-    const here = g.straight <= Math.max(6, d.radius > 0 ? Math.min(d.radius, 12) : 6);
+    const here = d.kind === "route" ? g.left < 10 : g.straight <= Math.max(6, d.radius > 0 ? Math.min(d.radius, 12) : 6);
     $("#fDist").textContent = here ? "Here" : fmtWalk(g.left);
-    $("#fSub").textContent = here ? (inRange(d) ? "You've arrived. Open it in AR." : "You've arrived.") : `${this.advice(rel)} · about ${Math.max(1, Math.round(g.left / 80))} min`;
+    const stop = d.kind === "route" && S.me ? (() => { let k = 0, bd = Infinity; d.points.forEach((q, i) => { const m = dist(S.me, q); if (m < bd) { bd = m; k = i; } }); return bd < 15 ? Math.min(k + 2, d.points.length) : k + 1; })() : null;
+    $("#fSub").textContent = here ? (d.kind === "route" ? "End of the route." : inRange(d) ? "You've arrived. Open it in AR." : "You've arrived.") : `${this.advice(rel)} · about ${Math.max(1, Math.round(g.left / 80))} min${stop ? ` · stop ${stop} of ${d.points.length}` : ""}`;
     $("#fOpen").hidden = !inRange(d);
     $("#fPocketDist").textContent = here ? "Here" : fmtWalk(g.left); $("#fPocketArrow").style.transform = `rotate(${this.needle}deg)`;
     if (this.xray) this.drawRadar(g, h);
@@ -3441,6 +3451,7 @@ const Finder = {
       for (const b of dt.buildings) { if (dist(me, b.pts[0]) > span * 1.5) continue; x.beginPath(); b.pts.forEach((p, i) => { const [a, c] = P(p); i ? x.lineTo(a, c) : x.moveTo(a, c); }); x.closePath(); x.fill(); x.stroke(); }
     }
     if (this.path) { x.strokeStyle = "#2EB2FF"; x.lineWidth = 3; x.lineCap = "round"; x.lineJoin = "round"; x.beginPath(); this.path.forEach((p, i) => { const [a, b] = P(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke(); }
+    if (this.d.kind === "route") { x.strokeStyle = "#2EB2FF"; x.lineWidth = 2; this.d.points.forEach(q => { const [a, b] = P(q); x.beginPath(); x.arc(a, b, 5, 0, Math.PI * 2); x.stroke(); }); }
     const [tx, ty] = P(this.target()); x.fillStyle = "#2EB2FF"; x.beginPath(); x.arc(tx, ty, 6, 0, Math.PI * 2); x.fill();
     x.restore();
   }
