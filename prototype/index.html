@@ -1691,9 +1691,9 @@ function cannonGame(d, scene, root, item, opt) {
 
 /* Where a drop is from you: GPS distance and bearing, and the ground height difference from elevation tiles. */
 async function objOrigin(d) {
-  const geo = steadyPosition(), ring = [geo, ...[0, 90, 180, 270].map(b => offset(geo, 5, b))];
-  const [es, e1] = await Promise.all([Terrain.many(ring), Terrain.elev(d)]);
-  const ok = es.filter(e => e != null).sort((a, b) => a - b), e0 = ok.length ? ok[ok.length >> 1] : null;
+  const geo = steadyPosition(), around = c => [c, ...[0, 45, 90, 135, 180, 225, 270, 315].map(b => offset(c, 10, b))];
+  const [es, ed] = await Promise.all([Terrain.many(around(geo)), Terrain.many(around(d))]);
+  const e0 = groundOf(es), e1 = groundOf(ed);
   return { geo, m: dist(geo, d), brg: bearing(geo, d), dz: e0 != null && e1 != null ? e1 - e0 : 0 };
 }
 /* local x/z of a drop, given the camera's flat forward f at the moment the compass read h (radians) */
@@ -1702,8 +1702,8 @@ function geoPlace(o, h, f, ox, oz) {
   const fc = Math.cos(b) * m, rc = Math.sin(b) * m;
   return { x: ox + f.x * fc + r.x * rc, z: oz + f.z * fc + r.z * rc };
 }
-// near you the floor the camera sees is the truth; terrain height takes over from 5 m to 20 m out
-const objLift = o => { const k = clamp((o.m - 5) / 15, 0, 1); return clamp(o.dz, -.3 * o.m, .3 * o.m) * k * k * (3 - 2 * k); };
+// near you the floor the camera sees is the truth; terrain height takes over from 6 m to 30 m out
+const objLift = o => { const k = clamp((o.m - 6) / 24, 0, 1); return clamp(o.dz, -.2 * o.m, .2 * o.m) * k * k * (3 - 2 * k); };
 const placedHint = (o, compass) => compass
   ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away, and locked.${S.sim ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
   : "No compass reading, so it's straight ahead at its real distance. Tap Move it to set it by hand.";
@@ -2012,6 +2012,19 @@ function loadSurroundings(rig, obs, scan, isEnded) {
 }
 function inPoly(x, z, pts) { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside; } return inside; }
 /* thin-line building shells, brighter close to you; also records footprints near you as obstacles */
+/* The public tiles are partly surface models: trees and roofs show up as bumps of 5 to 15 m.
+   A min-then-max pass (an "opening") wider than a building strips those bumps and keeps hills. */
+function openGrid(es, n, r) {
+  const pass = (src, f) => src.map((v, i) => { if (v == null) return null; const a = Math.floor(i / n), b = i % n; let m = v;
+    for (let da = -r; da <= r; da++) for (let db = -r; db <= r; db++) { const a2 = a + da, b2 = b + db; if (a2 < 0 || b2 < 0 || a2 >= n || b2 >= n) continue; const w = src[a2 * n + b2]; if (w != null) m = f(m, w); } return m; });
+  return pass(pass(es, Math.min), Math.max);
+}
+function openLine(es, r) {
+  const pass = (src, f) => src.map((v, i) => { if (v == null) return null; let m = v; for (let k = -r; k <= r; k++) { const w = src[i + k]; if (w != null) m = f(m, w); } return m; });
+  return pass(pass(es, Math.min), Math.max);
+}
+// the ground where you stand: the low quarter of nearby samples, since bumps only ever push it up
+const groundOf = es => { const ok = es.filter(e => e != null).sort((a, b) => a - b); return ok.length ? ok[Math.floor((ok.length - 1) * .25)] : null; };
 /* elevation samples on a grid around c, cached, for the x-ray terrain mesh */
 const terrainGrids = new Map();
 function terrainGrid(c, R) {
@@ -2019,7 +2032,7 @@ function terrainGrid(c, R) {
   if (!terrainGrids.has(key)) {
     const step = Math.max(4, R / 24), n = Math.round(R / step), pts = [];
     for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) pts.push({ lat: c.lat + deg(j * step / EARTH), lng: c.lng + deg(i * step / (EARTH * Math.cos(rad(c.lat)))), r: Math.hypot(i, j) / n });
-    const job = { v: null }; job.p = Terrain.many(pts).then(es => (job.v = { pts, es, n: 2 * n + 1 })); terrainGrids.set(key, job);
+    const job = { v: null }; job.p = Terrain.many(pts).then(es => (job.v = { pts, es: openGrid(es, 2 * n + 1, Math.max(1, Math.round(14 / step))), n: 2 * n + 1 })); terrainGrids.set(key, job);
     if (terrainGrids.size > 6) terrainGrids.delete(terrainGrids.keys().next().value);
   }
   return terrainGrids.get(key);
@@ -2029,7 +2042,8 @@ function terrainMesh(tg, api, opt) {
   const { pts, es, n } = tg, s = api.A.s, P = pts.map((p, i) => es[i] == null ? null : api.atE(p, es[i], .03 * s));
   const light = opt.preview && document.documentElement.dataset.theme !== "dark", base = lc(light ? 0x2E9E50 : 0xA6F4B0);
   const lp = [], lcl = [], tp = [];
-  const col = i => { const k = 1 - Math.pow(pts[i].r, 2) * .85; lcl.push(base.r * k, base.g * k, base.b * k); };
+  // fade out toward the edge so the far grid doesn't pile up into a bright band at eye level
+  const col = i => { const k = Math.pow(1 - pts[i].r, 1.6); lcl.push(base.r * k, base.g * k, base.b * k); };
   for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
     const i = a * n + b, p = P[i]; if (!p || pts[i].r > 1) continue;
     [[a + 1, b], [a, b + 1]].forEach(([a2, b2]) => { if (a2 >= n || b2 >= n) return; const j = a2 * n + b2, q = P[j]; if (!q || pts[j].r > 1) return; lp.push(p.x, p.y, p.z, q.x, q.y, q.z); col(i); col(j); });
@@ -2042,7 +2056,7 @@ function terrainMesh(tg, api, opt) {
 }
 function xrayLayer(data, opt) {
   const buildings = data.buildings || [], ways = data.ways || [];
-  const c0 = opt.center || S.me, terr = c0 ? terrainGrid(c0, opt.preview ? opt.radius : Math.min(opt.radius, 160)) : null;
+  const c0 = opt.center || S.me, terr = c0 ? terrainGrid(c0, opt.preview ? opt.radius : Math.min(opt.radius, 70)) : null;
   return api => {
     const g = new THREE.Group(), bands = [[], [], []], walls = [], polys = [], s = api.A.s;
     if (terr) { const tgrp = new THREE.Group(); g.add(tgrp); const fill = v => { if (v && !tgrp.children.length) tgrp.add(terrainMesh(v, api, opt)); }; if (terr.v) fill(terr.v); else terr.p.then(fill); }
@@ -2192,8 +2206,8 @@ function makePlanner(obs) {
 function routeRig(d, o) {
   const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
   const prof = (d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }))).map(p => ({ ...p }));
-  // smooth elevation-model noise with a 5-point moving average (about 25 m), light enough to keep real hills
-  { const raw = prof.map(p => p.e); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
+  // strip roof and tree bumps, then smooth with a 5-point moving average (about 25 m), light enough to keep real hills
+  { const raw = openLine(prof.map(p => p.e), 2); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
   const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .9, pole: 1.3, up: 0 };
   const COL = { path: 0xFFB020, live: 0x4CC9F0, stem: 0x8A919A, done: 0x5A616A };
   let path = null, glow = null, stems = null, trace = null, live = null, extra = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
@@ -2208,9 +2222,9 @@ function routeRig(d, o) {
     return { x: A.ox + (A.f.x * fc + A.r.x * rc) * A.s, z: A.oz + (A.f.z * fc + A.r.z * rc) * A.s };
   }
   // Height of the ground at p relative to the ground where you stand, from the elevation tiles.
-  // Within a few metres the floor the camera sees is the truth, so terrain eases in from 3 m to 15 m.
-  // Grades past 35% are tile noise, not hills you'd walk.
-  const relE = (e, dh) => { const dz = (e == null ? A.e0 : e) - A.e0; if (o.preview) return dz; const k = clamp((dh - 3) / 12, 0, 1); return clamp(dz, -.35 * dh, .35 * dh) * k * k * (3 - 2 * k); };
+  // Near you the floor the camera sees is the truth, so terrain eases in from 6 m to 30 m.
+  // Grades past 20% are tile noise more often than real hills.
+  const relE = (e, dh) => { const dz = (e == null ? A.e0 : e) - A.e0; if (o.preview) return dz; const k = clamp((dh - 6) / 24, 0, 1); return clamp(dz, -.2 * dh, .2 * dh) * k * k * (3 - 2 * k); };
   const rel = p => relE(eOf(p), dist(A.geo, p));
   // Upstairs (A.up metres above the street): the line starts on your floor and eases down to the ground,
   // over at least 10 m or three times the drop, whichever is longer.
@@ -2455,10 +2469,10 @@ async function routeOrigin(d) {
   // Standing at a stop? GPS is off by metres but the stop is exact, so start from the stop.
   const near = d.points.map((p, i) => ({ p, i, m: dist(geo, p) })).sort((a, b) => a.m - b.m)[0];
   if (near && near.m <= Math.max(10, Math.min(S.me.acc || 0, 20))) { geo = { lat: near.p.lat, lng: near.p.lng }; snapped = near.i; }
-  // median of nine samples around you evens out the elevation model
-  const ring = [geo, ...[0, 45, 90, 135, 180, 225, 270, 315].map(b => offset(geo, 6, b))];
-  const es = (await Terrain.many(ring)).filter(e => e != null).sort((a, b) => a - b);
-  return { geo, snapped, e: es.length ? es[es.length >> 1] : (d.profile?.pts?.[0]?.e ?? 0) };
+  // seventeen samples out to 12 m; the low quarter is the street, not a roof or a tree
+  const ring = [geo, ...[6, 12].flatMap(r => [0, 45, 90, 135, 180, 225, 270, 315].map(b => offset(geo, r, b)))];
+  const e0 = groundOf(await Terrain.many(ring));
+  return { geo, snapped, e: e0 ?? (d.profile?.pts?.[0]?.e ?? 0) };
 }
 /* Compass can be off by 15°. Once you've walked a straight stretch, compare the direction
    the phone's tracking says you moved with the direction GPS says you moved, and turn the route. */
@@ -2629,7 +2643,7 @@ function startRouteViewer(d, note) {
     rig.setExtras(xrayLayer(dt, { radius: ext * 1.6, preview: true, beacons: scan, rings: scan, center: c }));
     if (scan) hint(surroundMsg(dt) + " Drag to orbit.");
   });
-  rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1.5, hover: AGL.v * .12, pole: .32 });
+  rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1, hover: AGL.v * .12, pole: .32 });
   rig.scene.background = lc(cssVar("--scene-bg")); rig.scene.add(gridFloor(5, 20));
   // no profile (the surroundings scan): take the ground height from the tiles so the terrain sits on the grid
   if (!es.length) Terrain.elev(c).then(e => { if (!ended && e != null) rig.setAlign({ e0: e, userE: e }); });
@@ -2639,7 +2653,7 @@ function startRouteViewer(d, note) {
   if (near()) rig.startAt(rig.xz(S.me));
   AGL.cb = v => rig.setHover(v * .12); AGL.set(AGL.v);
   $("#arRealign").onclick = () => near() && rig.startAt(rig.xz(S.me));
-  hint(note || (scan ? "Buildings around you from map data, with nearby drops. Drag to orbit." : `Height exaggerated 1.5×. ${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`));
+  hint(note || (scan ? "Buildings around you from map data, with nearby drops. Drag to orbit." : `${d.profile?.ok ? "" : "Terrain not loaded, so it's flat. "}${near() ? "The blue line runs from you to the next stop." : "Drag to orbit."}`));
   let raf = 0;
   const loop = () => {
     raf = requestAnimationFrame(loop); orbit.step(); const t = performance.now() / 1000;
