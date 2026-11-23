@@ -21,7 +21,7 @@ One HTML file. No build step, no backend, no keys.
 ## What's in it
 
 - AR, next to Drop, opens the AR view of everything around you. Undo sits at the top of the tool rail when there's something to undo.
-- On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it.
+- On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it. The camera view measures your lens and the picture's lag while you turn (saved), so objects stop gliding against the picture. In the AR view, an object within 12 m offers Lock to ground, which hands it to Apple's AR so it holds still as you walk around it.
 - No labels float above objects. In New drop, "Add a sign" lets you write a short sign; it stands a foot to the side of the object at your eye height and turns to face you.
 - Drag a 3D model or marker from the picker straight onto the map (on touch, hold it for a fifth of a second, then drag). The panel and buttons slide away while you drag.
 - Drag any pin to move it. Select a route to drag its numbered waypoints. Every move can be undone from the toast.

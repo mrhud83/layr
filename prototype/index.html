@@ -1491,7 +1491,7 @@ $("#tunnelBtn").addEventListener("click", () => {
 });
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
-  Compass.stop(); $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
+  Compass.stop(); $("#moveBtn").hidden = false; $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
 }
 $("#arClose").addEventListener("click", closeAR);
 // one tap hides every AR control except this button, close and the hit counter; tap again to bring them back
@@ -2066,27 +2066,97 @@ async function startXR(d) {
 }
 
 /* ---------- camera + motion sensors (no WebXR). Rotation only ---------- */
-/* The 3D camera must see exactly what the video shows, or the virtual ground tilts away from the real one.
-   Phone main cameras cover about 70° on the long side of the sensor; object-fit: cover crops the rest. */
+/* Turning-only AR on iPhone: the 3D layer has to move exactly like the camera picture, or objects glide.
+   Two things decide that, and both differ by phone: the lens's field of view, and how far the picture
+   lags behind the motion sensor. Lens measures both while you turn: it tracks how far the picture
+   slides sideways between frames and compares that with how far the sensor says the phone turned.
+   The result is saved, so it's right from the first frame next time. */
+const Lens = {
+  f: store.get("layr.lens.f", null),      // focal length as a fraction of the video width
+  lat: store.get("layr.lens.lat", 50),    // picture lag behind the sensor, ms
+  n: 0,
+  save() { store.set("layr.lens.f", this.f); store.set("layr.lens.lat", this.lat); }
+};
 function videoFov() {
   const v = $("#arVideo"), vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return 62;
+  const scale = Math.max(innerWidth / vw, innerHeight / vh), visH = innerHeight / scale;
+  if (Lens.f) return deg(2 * Math.atan(visH / 2 / (Lens.f * vw)));
   const L = rad(70), S = 2 * Math.atan(Math.tan(L / 2) * Math.min(vw, vh) / Math.max(vw, vh)), fovV = vh >= vw ? L : S;
-  const scale = Math.max(innerWidth / vw, innerHeight / vh), f = (innerHeight / scale) / vh;
-  return deg(2 * Math.atan(f * Math.tan(fovV / 2)));
+  return deg(2 * Math.atan((visH / vh) * Math.tan(fovV / 2)));
+}
+function lensTracker(onUpdate) {
+  const W = 80, H = 60, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const cx = cv.getContext("2d", { willReadFrequently: true }), v = $("#arVideo");
+  const qs = [];                      // sensor history { t, q }
+  let prev = null, pairs = [], lastFit = 0, frame = 0, stopped = false;
+  const qInv = new THREE.Quaternion(), qr = new THREE.Quaternion();
+  function qAt(t) {
+    if (!qs.length) return null; let i = qs.length - 1; while (i > 0 && qs[i].t > t) i--;
+    const a = qs[i], b = qs[i + 1]; if (!b || b.t <= a.t) return a.q;
+    return a.q.clone().slerp(b.q, clamp((t - a.t) / (b.t - a.t), 0, 1));
+  }
+  // turn about the camera's own vertical axis between two moments (small-angle rotation vector)
+  function yawBetween(t0, t1) { const a = qAt(t0), b = qAt(t1); if (!a || !b) return null; qr.copy(qInv.copy(a).invert()).multiply(b); return 2 * qr.y * Math.sign(qr.w || 1); }
+  function profile() {
+    cx.drawImage(v, 0, 0, W, H); const d = cx.getImageData(0, 0, W, H).data, p = new Float32Array(W); let m = 0;
+    for (let x = 0; x < W; x++) { let s = 0; for (let y = 8; y < H - 8; y++) { const i = (y * W + x) * 4; s += d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11; } p[x] = s; m += s; }
+    m /= W; let vr = 0; for (let x = 0; x < W; x++) { p[x] -= m; vr += p[x] * p[x]; } return { p, vr: vr / W };
+  }
+  // sideways slide between two column profiles, in sample pixels, with sub-pixel refinement
+  function slide(a, b) {
+    const R = 14, err = new Float32Array(2 * R + 1);
+    for (let s = -R; s <= R; s++) { let e = 0, n = 0; for (let x = R; x < W - R; x++) { const dd = b[x] - a[x - s]; e += dd * dd; n++; } err[s + R] = e / n; }
+    let bi = 0; for (let i = 1; i < err.length; i++) if (err[i] < err[bi]) bi = i;
+    if (bi === 0 || bi === err.length - 1) return null;
+    const l = err[bi - 1], c = err[bi], r = err[bi + 1], den = l - 2 * c + r, off = den > 0 ? .5 * (l - r) / den : 0;
+    const sorted = [...err].sort((x, y) => x - y); if (c > sorted[Math.floor(err.length / 2)] * .5) return null; // weak match
+    return bi - R + off;
+  }
+  function fit() {
+    // try picture lags from 0 to 200 ms. For each, the slide-per-radian is the median ratio, and the lag
+    // that puts the most frame pairs on that line (within a pixel) wins. Bad matches just don't count.
+    let best = null;
+    for (let L = 0; L <= 200; L += 10) {
+      const rows = []; for (const p of pairs) { const th = yawBetween(p.t0 - L, p.t1 - L); if (th != null && Math.abs(th) > rad(.6)) rows.push([th, p.s]); }
+      if (rows.length < 20) continue;
+      const ks = rows.map(([th, sv]) => Math.abs(sv / th)).sort((a, b) => a - b), k = ks[ks.length >> 1];
+      const sg = Math.sign(rows.reduce((a, [th, sv]) => a + th * sv, 0)) || 1;
+      let inl = 0, res = 0; for (const [th, sv] of rows) { const e = Math.abs(sv - sg * k * th); if (e < 1) { inl++; res += e; } }
+      const score = inl / rows.length - res / Math.max(1, inl) * .05;
+      if (!best || score > best.score) best = { L, k, score, inl, n: rows.length };
+    }
+    if (!best || best.inl < 15 || best.score < .5) return;
+    const f = best.k / W; // focal length as a fraction of the picture width
+    Lens.f = Lens.f ? Lens.f * .7 + f * .3 : f; Lens.lat = Math.round(Lens.n ? Lens.lat * .7 + best.L * .3 : best.L); Lens.n++; Lens.save(); onUpdate?.(best);
+  }
+  function tick(now) {
+    if (stopped) return; requestVideoFrame();
+    if (!v.videoWidth || ++frame % 2) return;
+    const pr = profile(); if (pr.vr < 40) { prev = null; return; } // too dark or featureless to measure
+    if (prev) { const s = slide(prev.p, pr.p), th = yawBetween(prev.t - Lens.lat, now - Lens.lat);
+      if (s != null && th != null && Math.abs(th) > rad(.4) && Math.abs(th) < rad(9)) { pairs.push({ t0: prev.t, t1: now, s }); if (pairs.length > 160) pairs.shift(); } }
+    prev = { t: now, p: pr.p };
+    if (now - lastFit > 1500 && pairs.length >= 30) { lastFit = now; fit(); }
+  }
+  const requestVideoFrame = () => v.requestVideoFrameCallback ? v.requestVideoFrameCallback(n => tick(n)) : requestAnimationFrame(tick);
+  requestVideoFrame();
+  return { push(t, q) { qs.push({ t, q: q.clone() }); while (qs.length > 2 && qs[0].t < t - 1200) qs.shift(); }, qAt, stop() { stopped = true; } };
 }
 function cameraRig() {
   const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(videoFov(), innerWidth / innerHeight, .05, 2000);
   const fitFov = () => { cam.fov = videoFov(); cam.updateProjectionMatrix(); }; $("#arVideo").addEventListener("loadedmetadata", fitFov); $("#arVideo").addEventListener("resize", fitFov);
   cam.position.set(0, 1.45, 0); CamCal.on = true;
-  const target = new THREE.Quaternion(), qp = new THREE.Quaternion(), xAxis = new THREE.Vector3(1, 0, 0); let ori = null;
-  const onOri = e => { if (e.alpha != null) ori = e; };
+  const qp = new THREE.Quaternion(), xAxis = new THREE.Vector3(1, 0, 0), tmpQ = new THREE.Quaternion(); let ori = null;
+  const lens = lensTracker(() => fitFov());
+  const onOri = e => { if (e.alpha == null) return; ori = e; lens.push(performance.now(), oriQuat(tmpQ, e.alpha, e.beta, e.gamma)); };
   addEventListener("deviceorientation", onOri);
   const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; fitFov(); };
   addEventListener("resize", onResize);
   return {
-    renderer, cam, hasOri: () => !!ori,
-    step() { if (ori) { oriQuat(target, ori.alpha, ori.beta, ori.gamma); target.multiply(qp.setFromAxisAngle(xAxis, CamCal.pitch)); cam.quaternion.slerp(target, .85); } cam.updateMatrixWorld(); },
-    stop() { CamCal.on = false; removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
+    renderer, cam, hasOri: () => !!ori, lens: () => Lens,
+    // draw with the sensor reading from as long ago as the picture lags, so both move together
+    step() { if (ori) { const q = lens.qAt(performance.now() - Lens.lat); if (q) cam.quaternion.copy(q).multiply(qp.setFromAxisAngle(xAxis, CamCal.pitch)); } cam.updateMatrixWorld(); },
+    stop() { CamCal.on = false; lens.stop(); removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
   };
 }
 async function openCameraFeed() {
@@ -2102,13 +2172,13 @@ async function startCamera(d, permP) {
   let placed = false, raf = 0, frame = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
-  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); };
+  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Lock to ground";
   const place = (t, compass) => {
     const f = flatForward(rig.cam.matrixWorld);
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z); built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass, false) + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " To walk around it, get close and tap Quick Look." : ""));
+    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " To pin it to the floor and walk around it, get close and tap Lock to ground." : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
   // Drag up or down to move it; it follows your finger.
@@ -2950,8 +3020,18 @@ async function startRouteCamera(d, permP) {
     hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned by compass, which can be 15° off. Drag sideways to turn the path, up or down if the ground sits too high." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways to turn the route.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
+  // iPhone: this view can only sense turning, so close-up objects can slide. Within 12 m, offer to hand
+  // the nearest one to Apple's AR, which tracks the floor and holds it still as you walk around it.
+  let nearT = 0, nearD = null;
+  $("#qlBtn").onclick = () => { if (!nearD) return; const d2 = nearD; closeAR(); openQuickLook(d2); };
+  const offerLock = t => {
+    if (!QUICKLOOK || t - nearT < 1 || !S.me) return; nearT = t;
+    nearD = S.drops.filter(x => x.kind !== "route" && !MODELS3D[x.model]?.game && dist(S.me, x) <= 12).sort((a, b) => dist(S.me, a) - dist(S.me, b))[0] || null;
+    $("#arObjCtl").hidden = !nearD;
+    if (nearD) { $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#qlBtn").textContent = "Lock to ground"; $("#lockVal").textContent = nearD.title.toUpperCase().slice(0, 18); }
+  };
   const loop = () => {
-    raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step();
+    raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step(); offerLock(t);
     if (!aligned && ((cr.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) || performance.now() - t0 > 4000)) {
       align();
       if (!cr.hasOri()) hint(perm === "granted" ? "No motion data from this phone, so the view can't turn with you." : "Motion & Orientation access was declined, so the view can't turn with you. Close Safari's tab, reopen the page and tap Allow.");
