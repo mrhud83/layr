@@ -390,6 +390,23 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-bottom > .ar-ctl, .ar-bottom > .ar-hint { transition: transform .35s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
 .hud-top, .rail, .panel, .fab-row { transition: transform .38s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
 .panel.dragging, .show-ui.dragging { transition: none !important; }
+/* compact drop panel: one sideways strip of objects, option chips, details on request */
+.panel.composing { max-height: 44vh; }
+.panel.composing .panel-body { padding-block: 10px 12px; }
+.panel.composing .seg { margin: 8px 0; }
+.strip { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; margin: 0 -14px; padding: 2px 14px 4px; scrollbar-width: none; }
+.strip::-webkit-scrollbar { display: none; }
+.strip .obj { flex: none; width: 76px; scroll-snap-align: start; padding: 8px 4px 0; }
+.strip .obj.m { padding: 0; }
+.strip .obj img { width: 76px; height: 64px; aspect-ratio: auto; object-fit: contain; background: transparent; }
+.strip .obj svg { width: 24px; height: 24px; margin: 12px 0 8px; }
+.strip .obj span { min-height: 26px; font-size: 10.5px; padding: 0 3px 4px; line-height: 1.1; }
+.note.tight { margin: 6px 0 0; font-size: 12px; }
+.chips { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+.chip { height: 32px; padding: 0 13px; border-radius: 999px; font: 600 13px/1 var(--font-ui); background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); transition: background .2s, color .2s; }
+.chip[aria-pressed="true"] { background: var(--amber-bg); color: #fff; }
+.chip[aria-pressed="true"]::before { content: "✓ "; }
+body.composing .fab-row { display: none; }
 .ar-btn { height: 46px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-radius: 999px; font: 600 14px/1 var(--font-ui); color: var(--text); }
 .ar-btn svg, .drop-btn svg { width: 17px; height: 17px; }
 .ar-btn:active, .drop-btn:active { transform: scale(.96); }
@@ -887,6 +904,7 @@ function sub(d) {
 }
 const tag = d => !S.me ? '<span class="tag">--</span>' : inRange(d) ? '<span class="tag in">IN RANGE</span>' : `<span class="tag">${fmtDist(distTo(d))}</span>`;
 function renderList() {
+  panel.classList.remove("composing"); document.body.classList.remove("composing");
   S.view = "list";
   const rows = S.me ? S.drops.map(d => ({ d, m: distTo(d) })).sort((a, b) => a.m - b.m) : S.drops.map(d => ({ d }));
   body.innerHTML = rows.length ? `<ul class="list">${rows.map(({ d }) => `
@@ -915,6 +933,7 @@ function profileBlock(d) {
     </svg></div>`;
 }
 function renderDetail() {
+  panel.classList.remove("composing"); document.body.classList.remove("composing");
   const d = byId(S.selected); if (!d) { S.selected = null; return renderList(); }
   S.view = "detail";
   const inR = inRange(d), m = S.me ? distTo(d) : null;
@@ -946,6 +965,7 @@ function renderDetail() {
   if (d.kind === "route" && matchMedia("(pointer: coarse)").matches) Compass.start(); // have a heading ready before AR opens
 }
 function renderAbout() {
+  panel.classList.remove("composing"); document.body.classList.remove("composing");
   S.view = "about"; S.selected = null; setPanel(true); renderPins();
   body.innerHTML = `
     <span class="label">Prototype</span><h2>How Layr works</h2>
@@ -976,11 +996,8 @@ function renderCompose() {
   body.innerHTML = `
     <div class="sec-head"><button class="back" data-act="cancel" type="button">‹ Cancel</button><span class="label" id="cPos">--</span></div>
     <div class="seg" role="group" aria-label="Drop type">${["model", "message", "route"].map(k => `<button type="button" data-act="kind" data-k="${k}" aria-pressed="${d.kind === k}">${KIND[k]}</button>`).join("")}</div>
-    ${d.kind === "model" ? `<div class="pick-head"><span class="label">3D models</span><span class="label">${Object.keys(MODELS3D).length}</span></div>
-      <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy" draggable="false"><span>${v.name}</span></button>`).join("")}</div>
-      <div class="pick-head"><span class="label">Light markers</span><span class="label">${Object.keys(OBJECTS).length}</span></div>
-      <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>
-      <p class="note">Tap one and place it at the crosshair, or hold it and drag it straight onto the map.</p>` : ""}
+    ${d.kind === "model" ? `<div class="strip" aria-label="Objects">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy" draggable="false"><span>${v.name}</span></button>`).join("")}${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>
+      <p class="note tight">Tap to place at the crosshair, or hold and drag onto the map.</p>` : ""}
     ${d.kind === "message" ? `<div class="field"><label class="label" for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they arrive?">${esc(d.text)}</textarea></div>
       <div class="field"><span class="label">Accent</span><div class="swatches">${COLORS.map(c => `<button type="button" class="swatch" data-act="color" data-c="${c}" aria-label="Accent ${c}" aria-pressed="${d.color === c}" style="background:${c}"></button>`).join("")}</div></div>` : ""}
     ${d.kind === "route" ? `<div class="seg" role="group" aria-label="How to make the route" style="grid-template-columns:repeat(2,1fr);margin-top:0">
@@ -989,14 +1006,18 @@ function renderCompose() {
         <p class="note" id="cStops">Put your finger on Start here to begin where you stand, or anywhere else. Start at the line's end to keep going. Grab the line to bend it.</p>`
       : `<div class="btn-row"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
         <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
-    ${d.kind === "model" ? `<div class="field"><button type="button" class="btn" data-act="sign" aria-pressed="${!!d.signOn}" style="justify-content:flex-start">${d.signOn ? "✓ Sign next to it" : "+ Add a sign"}</button>
-      ${d.signOn ? `<input id="cSign" type="text" maxlength="60" placeholder="What the sign says" value="${esc(d.signText || "")}">` : ""}</div>` : ""}
-    <div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
-    <div class="field"><label class="label" for="cRadius">Opens within</label><div class="range"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} M</span></div></div>
+    ${d.kind !== "route" ? `<div class="chips">
+        ${d.kind === "model" ? `<button type="button" class="chip" data-act="sign" aria-pressed="${!!d.signOn}">Sign</button>` : ""}
+        <button type="button" class="chip" data-act="road" aria-pressed="${!!d.road}">Path to it</button>
+        <button type="button" class="chip" data-act="more" aria-pressed="${!!d.more}">Details</button></div>
+      ${d.signOn && d.kind === "model" ? `<div class="field"><input id="cSign" type="text" maxlength="60" placeholder="What the sign says" value="${esc(d.signText || "")}"></div>` : ""}` : ""}
+    ${d.kind === "route" || d.more ? `<div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
+    <div class="field"><label class="label" for="cRadius">Opens within</label><div class="range"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} M</span></div></div>` : ""}
     <button class="btn ${d.kind === "route" ? "" : "primary"}" style="width:100%" data-act="save" type="button">${d.kind === "route" ? "Save route" : "Place drop here"}</button>`;
-  $("#cTitle").addEventListener("input", e => d.title = e.target.value);
+  panel.classList.add("composing"); document.body.classList.add("composing");
+  $("#cTitle")?.addEventListener("input", e => d.title = e.target.value);
   $("#cSign")?.addEventListener("input", e => d.signText = e.target.value);
-  $("#cRadius").addEventListener("input", e => { d.radius = +e.target.value; $("#cRadiusV").textContent = d.radius + " M"; drawDraft(); });
+  $("#cRadius")?.addEventListener("input", e => { d.radius = +e.target.value; $("#cRadiusV").textContent = d.radius + " M"; drawDraft(); });
   $("#cText")?.addEventListener("input", e => d.text = e.target.value);
   $("#dropBtn").hidden = true; $("#cross").hidden = d.kind === "route" && d.how === "draw"; summary(); resetScroll("c:" + d.kind);
   setDrawing(d.kind === "route" && d.how === "draw" && !d.pan);
@@ -1203,6 +1224,7 @@ function saveDraft(at) {
   } else if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
   else loc = at || draftCenter();
   if (d.kind === "message") { if (!d.text.trim()) return toast("Write a message first."); extra.text = d.text.trim(); extra.color = d.color; }
+  if (d.kind !== "route" && d.road) extra.road = true;
   if (d.kind === "model") { extra.model = d.model; if (d.signOn && (d.signText || "").trim()) extra.sign = d.signText.trim().slice(0, 60); }
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
@@ -1249,6 +1271,8 @@ body.addEventListener("click", e => {
   else if (a === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
   else if (a === "obj") { S.draft.model = b.dataset.k; const rr = MODELS3D[b.dataset.k]?.radius; if (rr && S.draft.radius < rr) { S.draft.radius = rr; $("#cRadius").value = rr; $("#cRadiusV").textContent = rr + " M"; drawDraft(); } body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "sign") { S.draft.signOn = !S.draft.signOn; renderCompose(); if (S.draft.signOn) $("#cSign")?.focus(); }
+  else if (a === "road") { S.draft.road = !S.draft.road; b.setAttribute("aria-pressed", S.draft.road); toast(S.draft.road ? "A golden path will lead people to it in AR." : "No path."); }
+  else if (a === "more") { S.draft.more = !S.draft.more; renderCompose(); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
   else if (a === "reroute") { History.push("reroute setting"); const d = byId(S.selected); d.reroute = d.reroute === false; save(); renderPins(); renderDetail(); }
@@ -1392,6 +1416,7 @@ function sanitize(d) {
   if (!d || !KIND[d.kind] || !num(d.lat) || !num(d.lng)) return null;
   const o = { id: String(d.id || uid()).slice(0, 32), created: num(d.created) ? d.created : Date.now(), kind: d.kind, title: String(d.title || "Shared drop").slice(0, 60),
     radius: clamp(num(d.radius) ? d.radius : 30, 10, 200), lat: clamp(d.lat, -90, 90), lng: clamp(d.lng, -180, 180), shared: true };
+  if (d.road && d.kind !== "route") o.road = true;
   if (d.kind === "model") { o.model = MODELS3D[d.model] || OBJECTS[d.model] ? d.model : "marker"; if (d.sign) o.sign = String(d.sign).slice(0, 60); }
   if (d.kind === "message") { o.text = String(d.text || "").slice(0, 280); o.color = /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : COLORS[0]; }
   if (d.kind === "route") {
@@ -1491,7 +1516,7 @@ $("#tunnelBtn").addEventListener("click", () => {
 });
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
-  Compass.stop(); $("#moveBtn").hidden = false; $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
+  Compass.stop(); $("#moveBtn").hidden = false; $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = ""; $("#arStage").onclick = null;
 }
 $("#arClose").addEventListener("click", closeAR);
 // one tap hides every AR control except this button, close and the hit counter; tap again to bring them back
@@ -1971,6 +1996,67 @@ async function openQuickLook(d) {
   catch (e) { toast("Couldn't prepare the AR file. Showing 3D preview."); startViewer(d); }
 }
 
+/* ===================================================================
+   GOLDEN PATH: an optional brick road on the ground from you to an
+   object or message, following sidewalks when the foot router knows them.
+   =================================================================== */
+async function walkPath(from, to) {
+  try {
+    const r = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/driving/${from.lng.toFixed(6)},${from.lat.toFixed(6)};${to.lng.toFixed(6)},${to.lat.toFixed(6)}?overview=full&geometries=geojson`);
+    const j = await r.json();
+    if (j.code === "Ok") { const g = j.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng })); if (g.length > 1 && routeLength(g) < dist(from, to) * 3 + 60) return [from, ...g, to]; }
+  } catch (e) {}
+  return [from, to];
+}
+const BRICK_V = `attribute float aS; attribute float aV; varying float vS; varying float vV; varying float vD;
+  void main(){ vS = aS; vV = aV; vec4 mv = modelViewMatrix * vec4(position, 1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }`;
+const BRICK_F = `uniform float uW; varying float vS; varying float vV; varying float vD;
+  float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  void main(){
+    float w = (vV * .5 + .5) * uW, row = floor(w / .17);
+    vec2 b = vec2((vS + mod(row, 2.) * .16) / .32, w / .17), id = floor(b), f = fract(b);
+    float brick = smoothstep(0., .07, f.x) * smoothstep(1., .93, f.x) * smoothstep(0., .12, f.y) * smoothstep(1., .88, f.y);
+    vec3 gold = mix(vec3(.93, .68, .1), vec3(1., .85, .32), h(id)) * (.86 + .14 * h(id + 7.));
+    vec3 c = mix(vec3(.42, .3, .06), gold, brick);
+    float a = .93 * (1. - smoothstep(.88, 1., abs(vV))) * (1. - smoothstep(30., 140., vD) * .45);
+    gl_FragColor = vec4(c, a);
+  }`;
+/* frame: how map positions turn into this scene (origin geo, compass heading h, flat forward f, offset).
+   start/end: your feet and the object's base in the scene; the road is bent so it meets both exactly. */
+function goldenRoad(scene) {
+  let mesh = null, job = 0;
+  const local = (fr, p) => {
+    const n = rad(p.lat - fr.geo.lat) * EARTH, e = rad(p.lng - fr.geo.lng) * EARTH * Math.cos(rad(fr.geo.lat)), r = { x: -fr.f.z, z: fr.f.x };
+    const fc = n * Math.cos(fr.h) + e * Math.sin(fr.h), rc = e * Math.cos(fr.h) - n * Math.sin(fr.h);
+    return V(fr.ox + fr.f.x * fc + r.x * rc, 0, fr.oz + fr.f.z * fc + r.z * rc);
+  };
+  return {
+    async set(geoPts, fr, start, end) {
+      const my = ++job, pts = (await geoPts).map(p => local(fr, p)); if (my !== job || pts.length < 2) return;
+      // bend the walked line so it starts at your feet and ends at the object, rising or falling evenly
+      const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+      const L = cum.at(-1) || 1, d0 = start.clone().sub(pts[0]), d1 = end.clone().sub(pts.at(-1));
+      pts.forEach((p, i) => { const k = cum[i] / L; p.add(d0.clone().lerp(d1, k)); p.y = start.y + (end.y - start.y) * k + .015; });
+      const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal"), len = curve.getLength();
+      if (len < 2) return;
+      const N = Math.max(8, Math.round(len / .4)), sp = curve.getSpacedPoints(N), from = Math.ceil(1 / (len / N)), to = N - Math.ceil(.6 / (len / N));
+      const band = sp.slice(from, Math.max(from + 2, to + 1)), HW = .45;
+      const pos = new Float32Array(band.length * 6), aS = new Float32Array(band.length * 2), aV = new Float32Array(band.length * 2); let sAcc = 0;
+      band.forEach((P, i) => {
+        if (i) sAcc += P.distanceTo(band[i - 1]);
+        const a = band[Math.max(0, i - 1)], b = band[Math.min(band.length - 1, i + 1)]; let tx = b.x - a.x, tz = b.z - a.z; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+        [-1, 1].forEach((sd, j) => { const n = i * 2 + j; pos[n * 3] = P.x - tz * HW * sd; pos[n * 3 + 1] = P.y; pos[n * 3 + 2] = P.z + tx * HW * sd; aS[n] = sAcc; aV[n] = sd; });
+      });
+      const idx = []; for (let i = 0; i < band.length - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("aS", new THREE.BufferAttribute(aS, 1)); g.setAttribute("aV", new THREE.BufferAttribute(aV, 1)); g.setIndex(idx);
+      if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
+      mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: { uW: { value: HW * 2 } }, vertexShader: BRICK_V, fragmentShader: BRICK_F, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+      mesh.frustumCulled = false; mesh.renderOrder = 4; scene.add(mesh);
+    },
+    dispose() { job++; if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); } }
+  };
+}
+
 /* ---------- WebXR object: placed at its map position, then anchored ---------- */
 async function startXR(d) {
   showAR(d, "xr"); hint("Finding where it was dropped. Hold the phone up."); Compass.start();
@@ -1986,13 +2072,15 @@ async function startXR(d) {
   let hitSource;
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
-  let org = null; objOrigin(d).then(o => org = o);
+  let org = null, roadGeo = null, roadFr = null; objOrigin(d).then(o => { org = o; if (d.road) roadGeo = walkPath(o.geo, { lat: d.lat, lng: d.lng }); });
+  const road = d.road ? goldenRoad(built.scene) : null;
   let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null, ray = null, rayT = 0, pending = null;
   const floors = [];
   // Once placed, the object is locked. Taps do nothing until you press Move.
   $("#moveBtn").onclick = () => { moving = true; $("#lockVal").textContent = "TAP TO PLACE"; hint("Aim at the new spot and tap the screen."); };
   const camPos = new THREE.Vector3(), anchored = new THREE.Vector3();
   function lock(pos, yaw, t, makeAnchor) {
+    if (road && roadGeo && roadFr) road.set(roadGeo, roadFr, V(camPos.x, floorY ?? camPos.y - 1.45, camPos.z), pos.clone());
     built.root.position.copy(pos); anchored.copy(pos); built.root.rotation.set(0, yaw, 0);
     if (!placed) built.spawn(t);
     built.root.visible = true; placed = true; moving = false; reticle.visible = false;
@@ -2027,6 +2115,7 @@ async function startXR(d) {
         const q = geoPlace(compass ? org : { ...org, brg: 0 }, compass ? rad(Compass.heading) : 0, f, camPos.x, camPos.z);
         const pos = V(q.x, (floorY ?? camPos.y - 1.45) + objLift(org), q.z), yaw = Math.atan2(camPos.x - q.x, camPos.z - q.z);
         pending = { pos, yaw, compass, t, from: camPos.clone() };
+        roadFr = { geo: org.geo, h: compass ? rad(Compass.heading) : rad(org.brg), f: { x: f.x, z: f.z }, ox: camPos.x, oz: camPos.z };
         // Before it appears, cast a fixed ray from the phone to the spot: if the tracker has a surface
         // there, the object stands on it instead of on a guessed height.
         if (window.XRRay) {
@@ -2060,7 +2149,7 @@ async function startXR(d) {
     built.update(t, xrCam); renderer.render(built.scene, cam);
   });
   let ended = false;
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); ray?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); disposeTree(built.scene); renderer.dispose(); };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); ray?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); road?.dispose(); disposeTree(built.scene); renderer.dispose(); };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -2169,16 +2258,18 @@ async function startCamera(d, permP) {
   const perm = await permP, org = await objOrigin(d);
   let motionSpeed = null;
   const rig = cameraRig(), built = buildObjectScene(d, rig.renderer, { motion: () => motionSpeed?.() }); built.root.visible = false;
-  let placed = false, raf = 0, frame = null; const t0 = performance.now();
+  let placed = false, raf = 0, frame = null, road = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
   $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Lock to ground";
+  $("#arStage").onclick = () => { if (QUICKLOOK && !MODELS3D[d.model]?.game && S.me && dist(S.me, d) <= 12) $("#qlBtn").click(); };
   const place = (t, compass) => {
     const f = flatForward(rig.cam.matrixWorld);
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
-    built.root.position.set(q.x, objLift(org), q.z); built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " To pin it to the floor and walk around it, get close and tap Lock to ground." : ""));
+    built.root.position.set(q.x, objLift(org), q.z);
+    if (d.road) { road = goldenRoad(built.scene); road.set(walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
+    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " Within 12 m, tap anywhere to lock it to the floor." : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
   // Drag up or down to move it; it follows your finger.
@@ -2201,7 +2292,7 @@ async function startCamera(d, permP) {
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
+  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); road?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
     removeEventListener("devicemotion", onMotion); el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
 }
 
@@ -3028,8 +3119,10 @@ async function startRouteCamera(d, permP) {
     if (!QUICKLOOK || t - nearT < 1 || !S.me) return; nearT = t;
     nearD = S.drops.filter(x => x.kind !== "route" && !MODELS3D[x.model]?.game && dist(S.me, x) <= 12).sort((a, b) => dist(S.me, a) - dist(S.me, b))[0] || null;
     $("#arObjCtl").hidden = !nearD;
-    if (nearD) { $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#qlBtn").textContent = "Lock to ground"; $("#lockVal").textContent = nearD.title.toUpperCase().slice(0, 18); }
+    if (nearD) { $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#qlBtn").textContent = "Lock to ground"; $("#lockVal").textContent = nearD.title.toUpperCase().slice(0, 18); if (!offered) { offered = true; hint(`${nearD.title} is close. Tap anywhere to lock it to the ground.`); } }
   };
+  let offered = false;
+  $("#arStage").onclick = () => { if (nearD) $("#qlBtn").click(); };
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step(); offerLock(t);
     if (!aligned && ((cr.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) || performance.now() - t0 > 4000)) {
@@ -3086,8 +3179,11 @@ function startRouteViewer(d, note) {
   AR.setXray = v => rig.setXray(v); AR.setTunnel = () => rig.setTunnel();
   AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
 }
+// the nearest object within 12 m whose AR file is ready to open inside this tap
+const nearLockable = () => S.me && S.drops.filter(x => x.kind === "model" && MODELS3D[x.model] && !MODELS3D[x.model].game && dist(S.me, x) <= 12).sort((a, b) => dist(S.me, a) - dist(S.me, b))[0];
 function openScan() {
   if (!S.me) return toast("Waiting for your location.");
+  if (QUICKLOOK && !S.xr) { const n = nearLockable(); if (n) return openQuickLook(n); }
   const d = { id: "__scan", kind: "route", title: "Surroundings", radius: 0, points: [{ lat: S.me.lat, lng: S.me.lng }] };
   const touch = matchMedia("(pointer: coarse)").matches;
   const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
