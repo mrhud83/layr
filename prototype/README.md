@@ -23,6 +23,7 @@ One HTML file. No build step, no backend, no keys.
 - Drag any pin to move it. Select a route to drag its numbered waypoints. Every move can be undone from the toast.
 - Routes draw as one continuous line that rises and falls with the terrain at a height you set (0.9 m by default, 0 to 3 m).
 - Your floor (− and +) tells the line you're upstairs. It starts on your floor and eases down to the street. On iPhone, GPS altitude can guess it when you're inside a mapped building.
+- Routes open in ground view: the path is a soft glowing band on the ground, with no raised line or stems. On Android, the band drapes onto the surfaces the camera finds as you look ahead (within 40 m); farther out it follows the elevation model. The view button cycles Ground, Line (raised at the line height) and Tunnel.
 - Tunnel view sweeps a solid arch along the route: aurora inside, amber ribs every 3 m, a pulse that runs ahead, and a see-through floor so you can watch your step.
 - X-ray shows the ground as a light green wire mesh from the elevation tiles, plus building shells and paths.
 - Laser cannon: an interactive drop (opens from up to 150 m). It turns to follow you and fires red bolts that fly at 24 m/s, so a far cannon gives you more time. Keep moving and it lags and misses. Stand still and it locks on and fires once or twice a second. Four hits and the view closes. Thin stems drop from the line to the ground. A cyan leg runs from you to the next waypoint and updates as you walk.

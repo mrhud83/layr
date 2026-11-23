@@ -306,7 +306,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-ctl .val .label { white-space: nowrap; }
 .ar-ctl .val { padding: 0 12px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-left: 1px solid var(--line); min-width: 108px; }
 .ar-ctl .val b { font: 600 13px/1 var(--font-mono); white-space: nowrap; }
-.ar-ctl button[aria-pressed="false"] { color: var(--dim); }
+.ar-ctl button[aria-pressed="false"], .ar-ctl button:disabled { color: var(--dim); }
+#tunnelBtn { min-width: 84px; }
 .ar-ctl .wide { width: auto; padding: 0 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
 #arHit { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,40,30,0) 30%, rgba(255,30,20,.42) 68%, rgba(190,0,0,.9) 100%); mix-blend-mode: screen; }
 #arHit.on { opacity: 1; transition: none; }
@@ -387,7 +388,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <div class="val"><span class="label">Line height</span><b id="aglVal">0.9 M</b></div>
         <button type="button" id="aglUp" aria-label="Raise the line">+</button>
         <button type="button" class="wide" id="arRealign">Realign</button>
-        <button type="button" class="wide" id="tunnelBtn" aria-pressed="false">Tunnel</button>
+        <button type="button" class="wide" id="tunnelBtn">Ground</button>
       </div>
       <div class="ar-ctl frame" id="arHdgCtl" hidden>
         <button type="button" id="rotL" aria-label="Turn the route left 3 degrees">⟲</button>
@@ -1333,12 +1334,17 @@ function showAR(d, mode) {
   $("#arObjCtl").hidden = true; $("#arGame").hidden = true; $("#qlBtn").hidden = true;
   $("#arLvlCtl").hidden = d.kind !== "route" || scan || mode === "viewer";
   $("#aimBtn").hidden = scan;
-  $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel);
+  $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); showView();
   Heading.rig = null;
 }
 const hint = t => { $("#arHint").textContent = t; };
 $("#xrayBtn").addEventListener("click", () => { XRS.xray = !XRS.xray; $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); AR.setXray?.(XRS.xray); });
-$("#tunnelBtn").addEventListener("click", () => { XRS.tunnel = !XRS.tunnel; $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel); AR.setTunnel?.(XRS.tunnel); hint(XRS.tunnel ? "Tunnel view. Walk through the arches." : "Line view."); });
+// one button cycles the three ways to draw a route: on the ground, a raised line, a tunnel
+const showView = () => { $("#tunnelBtn").textContent = XRS.view; $("#aglDown").disabled = $("#aglUp").disabled = XRS.view === "ground"; };
+$("#tunnelBtn").addEventListener("click", () => {
+  XRS.view = { ground: "line", line: "tunnel", tunnel: "ground" }[XRS.view]; showView(); AR.setTunnel?.();
+  hint({ ground: "Ground view. The path glows on the ground.", line: "Line view. The path floats at the line height.", tunnel: "Tunnel view. Walk through it." }[XRS.view]);
+});
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
   Compass.stop(); $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
@@ -1984,7 +1990,7 @@ function startViewer(d, note) {
    since it's map data), a live depth scan on phones that support it, and
    a short-range planner that bends the line to the next stop around both.
    =================================================================== */
-const XRS = { xray: true, tunnel: false };
+const XRS = { xray: true, view: "ground" };
 const Surround = {
   mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
   cache: new Map(),
@@ -2270,8 +2276,60 @@ function routeRig(d, o) {
   const drop = x => { if (x) { root.remove(x); disposeTree(x); } return null; };
   // terrain/x-ray layers sit on the real ground, never on the upstairs lift
   const api = { A, xz, at, gy: ground, atE: (p, e, lift = 0) => { const q = xz(p); return V(q.x, A.floorY + (relE(e, dist(A.geo, p)) * A.vex - A.up) * A.s + lift, q.z); } };
+  /* Ground view: the route as a soft glowing band lying on the ground, with a bright thin core and
+     faint chevrons drifting forward. In WebXR it drapes onto the surfaces the camera has found. */
+  const RIB_V = `attribute float aS; attribute float aV; varying float vS; varying float vV;
+    void main(){ vS = aS; vV = aV; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
+  const RIB_F = `uniform vec3 uCol; uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vV;
+    void main(){
+      if (vS > uReveal) discard;
+      float x = abs(vV);
+      float core = exp(-x * x * 60.), glow = exp(-x * x * 5.) * .28;
+      float ch = fract((vS - uTime * 1.6) / 2.2 + x * .3);
+      float chev = smoothstep(0., .04, ch) * (1. - smoothstep(.06, .16, ch)) * (1. - x) * .45;
+      float a = (core * .75 + glow + chev) * (1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS))) * (1. - smoothstep(.85, 1., x));
+      gl_FragColor = vec4(uCol * a, a);
+    }`;
+  const shared = { uTime: { value: 0 } };
+  function ribbon(pts3, color, width, s0) {
+    const N = pts3.length, pos = new Float32Array(N * 6), aS = new Float32Array(N * 2), aV = new Float32Array(N * 2), base = new Float32Array(N * 6);
+    let s = s0 || 0;
+    for (let i = 0; i < N; i++) {
+      const a = pts3[Math.max(0, i - 1)], b = pts3[Math.min(N - 1, i + 1)], P = pts3[i];
+      if (i) s += Math.hypot(P.x - pts3[i - 1].x, P.z - pts3[i - 1].z) / A.s;
+      let tx = b.x - a.x, tz = b.z - a.z; const ln = Math.hypot(tx, tz) || 1; tx /= ln; tz /= ln;
+      [-1, 1].forEach((sd, j) => { const n = i * 2 + j; pos[n * 3] = P.x - tz * width * sd; pos[n * 3 + 1] = P.y; pos[n * 3 + 2] = P.z + tx * width * sd; aS[n] = s; aV[n] = sd; });
+    }
+    base.set(pos);
+    const idx = []; for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("aS", new THREE.BufferAttribute(aS, 1)); g.setAttribute("aV", new THREE.BufferAttribute(aV, 1)); g.setIndex(idx);
+    const U = { uTime: shared.uTime, uProg: { value: -1e5 }, uReveal: { value: 1e9 }, uCol: { value: lc(color) } };
+    const light = o.preview && document.documentElement.dataset.theme !== "dark";
+    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: U, vertexShader: RIB_V, fragmentShader: RIB_F, transparent: true, depthWrite: false, blending: light ? THREE.NormalBlending : THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    m.frustumCulled = false; m.renderOrder = 5; m.userData = { U, base };
+    return m;
+  }
+  /* Surfaces the AR camera has found, on a 1 m grid in the route's own coordinates. */
+  const gmap = new Map(); let gmapDirty = false, drapeT = -1;
+  const gkey = (x, z) => Math.round(x) + "," + Math.round(z);
+  function groundAt(x, z) {
+    let a = 0, n = 0; const cx = Math.round(x), cz = Math.round(z);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const v = gmap.get((cx + i) + "," + (cz + j)); if (v != null) { const w = i || j ? 1 : 3; a += v * w; n += w; } }
+    return n ? a / n : null;
+  }
+  // drape a band onto found surfaces near you; farther out it keeps the terrain model's height
+  function drape(m, user) {
+    const p = m.geometry.attributes.position, A2 = p.array, B = m.userData.base;
+    for (let i = 0; i < A2.length; i += 3) {
+      const x = B[i], z = B[i + 2]; let y = B[i + 1];
+      if (!user || Math.hypot(x - user.x, z - user.z) < 40) { const gy2 = groundAt(x, z); if (gy2 != null) y = gy2 + .02; }
+      A2[i + 1] += (y - A2[i + 1]) * .5;
+    }
+    p.needsUpdate = true;
+  }
+  let band = null;
   function rebuild() {
-    path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); extra = drop(extra); wps.forEach(w => drop(w.g)); wps = [];
+    band = drop(band); path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); extra = drop(extra); wps.forEach(w => drop(w.g)); wps = [];
     if (o.extras) { extra = o.extras(api); extra.visible = XRS.xray; root.add(extra); }
     if (o.noPath) { built = true; return; }
     const pts = prof.map(p => at(p, A.hover));
@@ -2287,7 +2345,14 @@ function routeRig(d, o) {
     trace = new THREE.Line(new THREE.BufferGeometry().setFromPoints(gp), lineMat(COL.path, .3));
     root.add(glow, path, stems, trace);
     tunnel = drop(tunnel);
-    if (XRS.tunnel) { tunnel = buildTunnel(); root.add(tunnel); path.visible = glow.visible = stems.visible = false; }
+    if (XRS.view === "tunnel") { tunnel = buildTunnel(); root.add(tunnel); path.visible = glow.visible = stems.visible = false; }
+    if (XRS.view === "ground") {
+      // the line on the ground: no raised tube, no stems, no shadow trace
+      const k2 = o.preview ? 4 * A.s : 1, spine = new THREE.CatmullRomCurve3(prof.map(p => at(p, .02 * k2)), false, "centripetal");
+      band = ribbon(spine.getSpacedPoints(clamp(Math.round(total / (o.preview ? 2 : .5)), 8, 6000)), COL.path, o.preview ? .028 : .32);
+      root.add(band); if (gmap.size) drape(band, null);
+      path.visible = glow.visible = stems.visible = trace.visible = false;
+    }
     d.points.forEach((wp, i) => {
       const pp = prof.find(p => p.wp === i) || { ...wp, e: null, s: 0 };
       const g = new THREE.Group(), top = at(pp, A.hover + A.pole), mid = at(pp, A.hover), gnd = at(pp, 0);
@@ -2324,7 +2389,7 @@ function routeRig(d, o) {
       vec3 c;
       if (gl_FrontFacing) c = deep + tint * aur * (.35 + .45 * arc) + vec3(1., .66, .16) * rib * 1.1 + vec3(.35, .85, 1.) * pulse * .7 + vec3(1.) * tw;
       else c = deep * .7 + vec3(1., .66, .16) * rib * .55 + tint * aur * .08;
-      c *= 1. - .65 * smoothstep(uProg - 1., uProg - 6., vS);
+      c *= 1. - .65 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
       c = mix(c, deep * .6, smoothstep(40., 140., vD) * .6);
       gl_FragColor = vec4(c, 1.);
     }`;
@@ -2335,7 +2400,7 @@ function routeRig(d, o) {
       float ch = fract((vS - uTime * 2.5) / 1.5 + x * .35);
       float chev = smoothstep(0., .05, ch) * (1. - smoothstep(.08, .18, ch));
       vec3 c = vec3(.2, .7, 1.) * chev * .55 * (1. - x * .6) + vec3(1., .66, .16) * smoothstep(.8, 1., x) * .55;
-      c *= 1. - .7 * smoothstep(uProg - 1., uProg - 6., vS);
+      c *= 1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
       gl_FragColor = vec4(c, 1.);
     }`;
   function buildTunnel() {
@@ -2406,7 +2471,8 @@ function routeRig(d, o) {
   function liveLeg(user, t) {
     if (t - liveT < .1) return; liveT = t; live = drop(live);
     const tgt = reroute ? track : (wps[next] ? { p: wps[next].p } : null); if (!tgt) return;
-    const a = V(user.x, userGround() + A.hover * .7, user.z), b = at(tgt.p, A.hover);
+    const onGround = XRS.view === "ground", hv = onGround ? .02 * (o.preview ? 4 * A.s : 1) : A.hover;
+    const a = V(user.x, userGround() + (onGround ? hv : A.hover * .7), user.z), b = at(tgt.p, hv);
     if (a.distanceTo(b) < .05) return;
     // on the route: the blue line runs ahead along the route itself.
     // off it: bend around buildings and scanned obstacles back to the route, else go straight
@@ -2421,6 +2487,7 @@ function routeRig(d, o) {
       pts = curve.getSpacedPoints(Math.max(16, Math.round(tot * 2)));
     } else for (let k = 0; k <= 24; k++) { const f = k / 24, p = a.clone().lerp(b, f); p.y = a.y + (b.y - a.y) * f * f * (3 - 2 * f); pts.push(p); }
     live = new THREE.Group();
+    if (onGround) { const rb = ribbon(pts, COL.live, o.preview ? .02 : .22); if (gmap.size) drape(rb, user); live.add(rb); root.add(live); return; }
     live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube * .7, 5, false), new THREE.MeshBasicMaterial({ color: lc(COL.live), transparent: true, opacity: .95, depthWrite: false })));
     const k = o.preview ? A.s * 6 : 1;
     const dash = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p, k) => V(p.x, (a.y - A.hover * .7) + ((b.y - A.hover) - (a.y - A.hover * .7)) * k / (pts.length - 1), p.z))), new THREE.LineDashedMaterial({ color: lc(COL.live), dashSize: .2 * k, gapSize: .15 * k, transparent: true, opacity: .5 }));
@@ -2436,6 +2503,8 @@ function routeRig(d, o) {
     setLevel(up) { if (A.up === up) return; A.up = up; if (built) rebuild(); },
     setExtras(fn) { o.extras = fn; if (built) rebuild(); },
     setTunnel() { if (built) rebuild(); },
+    // a level surface the AR camera found (world coordinates); stored relative to the route
+    groundHit(x, y, z) { const ly = y - root.position.y, k = gkey(x, z), v = gmap.get(k); gmap.set(k, v == null ? ly : v * .7 + ly * .3); gmapDirty = true; if (gmap.size > 6000) gmap.delete(gmap.keys().next().value); },
     setXray(v) { if (extra) extra.visible = v; },
     rotateBy(da) { A.h += da; if (built) rebuild(); },
     setFloor(y) { if (built) root.position.y = y - A.floorY; },
@@ -2451,6 +2520,8 @@ function routeRig(d, o) {
       trace.geometry.setDrawRange(0, Math.floor(trace.geometry.attributes.position.count * e));
       wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
       paintTunnel(t, e);
+      shared.uTime.value = t;
+      if (band) { band.userData.U.uProg.value = progress; band.userData.U.uReveal.value = e >= 1 ? 1e9 : e * total; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }
       if (user) {
         if (reroute) follow(user);
         else { const w = wps[next]; if (w) { const q = xz(w.p); if (Math.hypot(q.x - user.x, q.z - user.z) / A.s < o.reach) next = Math.min(next + 1, wps.length); } }
@@ -2599,6 +2670,8 @@ async function startRouteXR(d) {
     const t = time / 1000, xrCam = renderer.xr.getCamera(cam); camPos.setFromMatrixPosition(xrCam.matrixWorld); if (t0 == null) t0 = t;
     if (frame && hitSource) {
       const hits = frame.getHitTestResults(hitSource);
+      // every level surface the camera finds ahead goes into the route's ground map
+      for (const h of hits) { const ps = h.getPose(renderer.xr.getReferenceSpace()); if (!ps || ps.transform.matrix[5] < .9) continue; const q = ps.transform.position; if (aligned && camPos.y - q.y > -1.5 && camPos.y - q.y < 4) rig.groundHit(q.x, q.y, q.z); }
       if (hits.length) { const p = hits[0].getPose(renderer.xr.getReferenceSpace())?.transform.position; if (p && camPos.y - p.y > .6 && camPos.y - p.y < 2.4) { floorY = floorY == null ? p.y : floorY * .92 + p.y * .08; if (aligned) rig.setFloor(floorY); scanner?.setFloor(floorY); } }
     }
     if (frame && scanner) scanner.sample(frame, renderer.xr.getReferenceSpace(), t);
