@@ -21,7 +21,7 @@ One HTML file. No build step, no backend, no keys.
 ## What's in it
 
 - AR, next to Drop, opens the AR view of everything around you. Undo sits at the top of the tool rail when there's something to undo.
-- On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it. The camera view measures your lens and the picture's lag while you turn (saved), so objects stop gliding against the picture. Safari only opens Apple's floor-locked AR from a tap, so the tap you already make counts: AR or Open with an object within 12 m goes straight into it, and in the camera view a tap anywhere locks the nearest object.
+- On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it. The camera view measures your lens and the picture's lag while you turn (saved), so objects stop gliding against the picture. Objects appear at their map spot (GPS + compass), then GPS stops: your steps, counted by the motion sensor, carry you toward them (about 0.7 m a step). Apple AR (Quick Look) is an optional button; it holds to the floor but places the object in front of you, not at its map spot.
 - Path to it (objects and messages): a golden brick road on the ground leads from you to the drop in AR, along sidewalks when the free foot router knows them.
 - The drop panel is compact: one sideways strip of objects, then Sign, Path to it and Details (title, range) chips.
 - No labels float above objects. In New drop, "Add a sign" lets you write a short sign; it stands a foot to the side of the object at your eye height and turns to face you.

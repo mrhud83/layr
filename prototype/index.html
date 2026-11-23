@@ -1488,8 +1488,8 @@ function openDrop(id, force) {
   }
   const game = !!MODELS3D[d.model]?.game; if (game) Sound.unlock();
   if (S.xr) return startXR(d);
-  // Quick Look can't place by map position, so use it only when you're standing about at the spot
-  if (QUICKLOOK && !game && (!S.me || dist(S.me, d) <= 12)) return openQuickLook(d);
+  // iPhone: Apple's viewer can't place things by map position, so use the camera view, which puts the
+  // object exactly where it was dropped. Apple's viewer stays one button away.
   if (touch && navigator.mediaDevices?.getUserMedia) return startCamera(d, perm);
   startViewer(d, "No AR camera here. Drag to orbit.");
 }
@@ -2248,6 +2248,27 @@ function cameraRig() {
     stop() { CamCal.on = false; lens.stop(); removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
   };
 }
+/* Walking without GPS: count steps from the motion sensor and move you about 0.7 m along the way
+   you face for each one. Objects stay put in the world and come closer as you walk, with none of
+   GPS's jumps. (iPhone browsers report turning but not position, so this stands in for it.) */
+function stepTracker() {
+  let lp = 9.81, hp = 0, last = 0, armed = true, pending = 0, lastStep = 0, n = 0;
+  const onM = e => {
+    const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+    const m = Math.hypot(a.x, a.y, a.z); lp += (m - lp) * .02; hp += ((m - lp) - hp) * .35;
+    const t = performance.now();
+    if (armed && hp > 1.1 && t - last > 300) { armed = false; last = t; lastStep = t; pending += .7; n++; }
+    if (!armed && hp < .2) armed = true;
+  };
+  addEventListener("devicemotion", onM);
+  const f = new THREE.Vector3();
+  return {
+    get steps() { return n; },
+    apply(cam) { if (pending <= 0) return; const take = Math.min(pending, .06); pending -= take; f.set(0, 0, -1).transformDirection(cam.matrixWorld); f.y = 0; if (f.lengthSq() < 1e-4) return; f.normalize(); cam.position.x += f.x * take; cam.position.z += f.z * take; },
+    speed: () => performance.now() - lastStep < 1200 ? 1.2 : 0,
+    stop() { removeEventListener("devicemotion", onM); }
+  };
+}
 async function openCameraFeed() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
   const v = $("#arVideo"); v.srcObject = stream; v.hidden = false; v.play().catch(() => {}); return stream;
@@ -2261,15 +2282,14 @@ async function startCamera(d, permP) {
   let placed = false, raf = 0, frame = null, road = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
-  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Lock to ground";
-  $("#arStage").onclick = () => { if (QUICKLOOK && !MODELS3D[d.model]?.game && S.me && dist(S.me, d) <= 12) $("#qlBtn").click(); };
+  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
   const place = (t, compass) => {
     const f = flatForward(rig.cam.matrixWorld);
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z);
     if (d.road) { road = goldenRoad(built.scene); road.set(walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It's locked to the ground and your view now; drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? " Within 12 m, tap anywhere to lock it to the floor." : ""));
+    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It stays put now: walk toward it and your steps bring it closer, no GPS. Drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? "" : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
   // Drag up or down to move it; it follows your finger.
@@ -2281,19 +2301,19 @@ async function startCamera(d, permP) {
     up = () => { dragY = null; };
   el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
   // walking: GPS moves you through the scene, smoothed, while the object stays where it was put
-  // walking still matters to the cannon: read it from the motion sensor, not GPS
-  let shake = 0; const onMotion = e => { const a = e.acceleration; if (!a || a.x == null) return; const m = Math.hypot(a.x, a.y, a.z); shake += (m - shake) * .08; };
-  addEventListener("devicemotion", onMotion); motionSpeed = () => clamp((shake - .35) * 1.4, 0, 3);
+  // walking comes from your steps, not GPS
+  const steps = stepTracker(); motionSpeed = () => steps.speed();
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; rig.step();
     if (!placed && rig.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) place(t, Compass.heading != null);
     else if (!placed && performance.now() - t0 > 4000) { place(t, false); hint(perm === "granted" ? "No motion data. The view can't turn with you." : "Motion access declined, so the view can't turn with you."); }
-    // once it's on screen it stays put relative to the ground and your view: no GPS nudging after that
+    // once it's on screen it stays put in the world; your steps carry you toward it, GPS doesn't
+    if (placed) steps.apply(rig.cam);
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
   AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); road?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
-    removeEventListener("devicemotion", onMotion); el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
+    steps.stop(); el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
 }
 
 /* ---------- 3D preview with orbit ---------- */
@@ -3111,20 +3131,9 @@ async function startRouteCamera(d, permP) {
     hint(scan ? (rig.status || "Loading building outlines and paths…") + " Use ⟲ ⟳ to line them up with real walls." : hd.compass ? "Turned by compass, which can be 15° off. Drag sideways to turn the path, up or down if the ground sits too high." : "No compass reading. Face where the next stop really is and tap Aim, or drag sideways to turn the route.");
   };
   $("#arRealign").onclick = () => { aligned = false; t0 = performance.now(); };
-  // iPhone: this view can only sense turning, so close-up objects can slide. Within 12 m, offer to hand
-  // the nearest one to Apple's AR, which tracks the floor and holds it still as you walk around it.
-  let nearT = 0, nearD = null;
-  $("#qlBtn").onclick = () => { if (!nearD) return; const d2 = nearD; closeAR(); openQuickLook(d2); };
-  const offerLock = t => {
-    if (!QUICKLOOK || t - nearT < 1 || !S.me) return; nearT = t;
-    nearD = S.drops.filter(x => x.kind !== "route" && !MODELS3D[x.model]?.game && dist(S.me, x) <= 12).sort((a, b) => dist(S.me, a) - dist(S.me, b))[0] || null;
-    $("#arObjCtl").hidden = !nearD;
-    if (nearD) { $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#qlBtn").textContent = "Lock to ground"; $("#lockVal").textContent = nearD.title.toUpperCase().slice(0, 18); if (!offered) { offered = true; hint(`${nearD.title} is close. Tap anywhere to lock it to the ground.`); } }
-  };
-  let offered = false;
-  $("#arStage").onclick = () => { if (nearD) $("#qlBtn").click(); };
+  const steps = stepTracker();
   const loop = () => {
-    raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step(); offerLock(t);
+    raf = requestAnimationFrame(loop); const t = performance.now() / 1000; cr.step(); if (scan && aligned) steps.apply(cr.cam);
     if (!aligned && ((cr.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) || performance.now() - t0 > 4000)) {
       align();
       if (!cr.hasOri()) hint(perm === "granted" ? "No motion data from this phone, so the view can't turn with you." : "Motion & Orientation access was declined, so the view can't turn with you. Close Safari's tab, reopen the page and tap Allow.");
@@ -3140,7 +3149,7 @@ async function startRouteCamera(d, permP) {
     cr.renderer.render(rig.scene, cr.cam);
   };
   loop();
-  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
+  AR.stop = () => { ended = true; steps.stop(); cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
 }
 
 function startRouteViewer(d, note) {
@@ -3179,11 +3188,8 @@ function startRouteViewer(d, note) {
   AR.setXray = v => rig.setXray(v); AR.setTunnel = () => rig.setTunnel();
   AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
 }
-// the nearest object within 12 m whose AR file is ready to open inside this tap
-const nearLockable = () => S.me && S.drops.filter(x => x.kind === "model" && MODELS3D[x.model] && !MODELS3D[x.model].game && dist(S.me, x) <= 12).sort((a, b) => dist(S.me, a) - dist(S.me, b))[0];
 function openScan() {
   if (!S.me) return toast("Waiting for your location.");
-  if (QUICKLOOK && !S.xr) { const n = nearLockable(); if (n) return openQuickLook(n); }
   const d = { id: "__scan", kind: "route", title: "Surroundings", radius: 0, points: [{ lat: S.me.lat, lng: S.me.lng }] };
   const touch = matchMedia("(pointer: coarse)").matches;
   const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
