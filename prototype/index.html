@@ -1521,7 +1521,7 @@ function buildObjectScene(d, renderer, opt = {}) {
   const item = glb ? makeModel(d) : makeObject(d); inner.add(item.obj);
   if (glb) addStudioLight(scene, root, renderer);
   // far away, a real-size object is a speck: a light pillar and a bigger label say where it is
-  const pillar = new THREE.Group(); pillar.add(seg(V(0, 0, 0), V(0, 7, 0), 0xFFB020, 1), circle(.5, 0xFFB020, 1)); pillar.visible = false; root.add(pillar);
+  const pillar = new THREE.Group(); const top = (def?.h || 1.2) + .3; pillar.add(seg(V(0, top, 0), V(0, top + 7, 0), 0xFFB020, 1), circle(.5, 0xFFB020, 1)); pillar.visible = false; root.add(pillar);
   const w0 = item.label.scale.x, y0 = item.label.position.y;
   const game = def?.game === "cannon" && !window.__thumb ? cannonGame(d, scene, root, item, opt) : null;
   const camV = new THREE.Vector3(), rootV = new THREE.Vector3();
@@ -1702,8 +1702,9 @@ function geoPlace(o, h, f, ox, oz) {
   const fc = Math.cos(b) * m, rc = Math.sin(b) * m;
   return { x: ox + f.x * fc + r.x * rc, z: oz + f.z * fc + r.z * rc };
 }
-// near you the floor the camera sees is the truth; terrain height takes over from 6 m to 30 m out
-const objLift = o => { const k = clamp((o.m - 6) / 24, 0, 1); return clamp(o.dz, -.2 * o.m, .2 * o.m) * k * k * (3 - 2 * k); };
+// Elevation tiles are a few metres off at best, which is enough to float an object, so they only count
+// for real hills: fading in from 40 m to 120 m, capped at an 8% grade. Closer, it sits on your ground level.
+const objLift = o => { const k = clamp((o.m - 40) / 80, 0, 1); return clamp(o.dz, -.08 * o.m, .08 * o.m) * k * k * (3 - 2 * k); };
 const placedHint = (o, compass) => compass
   ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away, and locked.${S.sim ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
   : "No compass reading, so it's straight ahead at its real distance. Tap Move it to set it by hand.";
@@ -1801,7 +1802,8 @@ async function startXR(d) {
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
   let org = null; objOrigin(d).then(o => org = o);
-  let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null;
+  let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null, ray = null, rayT = 0, pending = null;
+  const floors = [];
   // Once placed, the object is locked. Taps do nothing until you press Move.
   $("#moveBtn").onclick = () => { moving = true; $("#lockVal").textContent = "TAP TO PLACE"; hint("Aim at the new spot and tap the screen."); };
   const camPos = new THREE.Vector3(), anchored = new THREE.Vector3();
@@ -1828,16 +1830,38 @@ async function startXR(d) {
         const pose = hits[0].getPose(ref);
         if (pose && !pose.emulatedPosition) {
           lastHit = { result: hits[0], pose }; reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = moving;
-          const y = pose.transform.position.y; if (camPos.y - y > .5 && camPos.y - y < 2.4) floorY = floorY == null ? y : floorY * .9 + y * .1;
+          // a phone is held 0.9 to 2.2 m above the floor; a table or a wall hit is not the floor
+          const y = pose.transform.position.y;
+          if (camPos.y - y > .9 && camPos.y - y < 2.2) { floors.push(y); if (floors.length > 40) floors.shift(); const srt = [...floors].sort((a, b) => a - b); floorY = srt[Math.floor(srt.length * .3)]; }
         }
       } else reticle.visible = false;
       // place it once: at its real bearing and distance, on your floor or the terrain out there, then never move it again
-      if (!placed && org && t - t0 > .8 && (Compass.heading != null || t - t0 > 3) && (floorY != null || t - t0 > 2.5)) {
+      const anchorAt = (pos, yaw) => frame.createAnchor && window.XRRigidTransform ? () => frame.createAnchor(new XRRigidTransform({ x: pos.x, y: pos.y, z: pos.z }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }), ref) : null;
+      if (!placed && !pending && org && t - t0 > .8 && (Compass.heading != null || t - t0 > 3) && (floorY != null || t - t0 > 2.5)) {
         const compass = Compass.heading != null, f = flatForward(xrCam.matrixWorld);
         const q = geoPlace(compass ? org : { ...org, brg: 0 }, compass ? rad(Compass.heading) : 0, f, camPos.x, camPos.z);
         const pos = V(q.x, (floorY ?? camPos.y - 1.45) + objLift(org), q.z), yaw = Math.atan2(camPos.x - q.x, camPos.z - q.z);
-        lock(pos, yaw, t, frame.createAnchor && window.XRRigidTransform ? () => frame.createAnchor(new XRRigidTransform({ x: pos.x, y: pos.y, z: pos.z }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }), ref) : null);
-        hint(placedHint(org, compass));
+        pending = { pos, yaw, compass, t, from: camPos.clone() };
+        // Before it appears, cast a fixed ray from the phone to the spot: if the tracker has a surface
+        // there, the object stands on it instead of on a guessed height.
+        if (window.XRRay) {
+          const dv = pos.clone().sub(camPos).normalize();
+          session.requestHitTestSource({ space: ref, offsetRay: new XRRay({ x: camPos.x, y: camPos.y, z: camPos.z, w: 1 }, { x: dv.x, y: dv.y, z: dv.z, w: 0 }) }).then(src => { ray = src; rayT = t; }).catch(() => {});
+        }
+      }
+      if (pending && !placed) {
+        const P = pending, want = Math.hypot(P.pos.x - P.from.x, P.pos.z - P.from.z);
+        let y = null;
+        if (ray) for (const h of frame.getHitTestResults(ray)) {
+          const hp = h.getPose(ref)?.transform.position; if (!hp) continue;
+          const got = Math.hypot(hp.x - P.from.x, hp.z - P.from.z);
+          if (Math.abs(got - want) < Math.max(2, want * .3) && Math.abs(hp.y - P.pos.y) < 3) { y = hp.y; break; }
+        }
+        if (y != null || t - P.t > 1.2) {
+          if (y != null) P.pos.y = y;
+          ray?.cancel?.(); ray = null;
+          lock(P.pos, P.yaw, t, anchorAt(P.pos, P.yaw)); hint(placedHint(org, P.compass) + (y != null ? " Standing on the surface the camera found there." : ""));
+        }
       } else if (!placed) hint(org ? "Reading the compass and the floor…" : "Finding where it was dropped…");
       if (anchor && frame.trackedAnchors?.has(anchor)) {
         const ap = frame.getPose(anchor.anchorSpace, ref);
@@ -1851,7 +1875,7 @@ async function startXR(d) {
     built.update(t, xrCam); renderer.render(built.scene, cam);
   });
   let ended = false;
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); disposeTree(built.scene); renderer.dispose(); };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); ray?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); disposeTree(built.scene); renderer.dispose(); };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -1889,8 +1913,17 @@ async function startCamera(d, permP) {
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z); built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass) + " This browser tracks turning only, so walking comes from GPS.");
+    hint(placedHint(org, compass) + " If it floats, drag up or down to set it on the ground.");
   };
+  // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
+  // Drag up or down to move it; it follows your finger.
+  let dragY = null;
+  const el = $("#ar"), down = e => { if (!placed || e.target.closest("button")) return; dragY = e.clientY; },
+    move = e => { if (dragY == null) return; const dy = e.clientY - dragY; dragY = e.clientY;
+      const m = rig.cam.position.distanceTo(built.root.position), perPx = 2 * m * Math.tan(rad(rig.cam.fov / 2)) / innerHeight;
+      built.root.position.y -= dy * perPx; $("#lockVal").textContent = "SET BY HAND"; },
+    up = () => { dragY = null; };
+  el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
   // walking: GPS moves you through the scene, smoothed, while the object stays where it was put
   const meLocal = () => { const o = { m: dist(frame.g, S.me), brg: bearing(frame.g, S.me) }; return o.m < .3 ? { x: 0, z: 0 } : geoPlace({ ...o, m: o.m }, frame.h, frame.f, 0, 0); };
   const loop = () => {
@@ -1901,7 +1934,8 @@ async function startCamera(d, permP) {
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false; };
+  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
+    el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
 }
 
 /* ---------- 3D preview with orbit ---------- */
