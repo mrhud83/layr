@@ -430,8 +430,16 @@ body.composing .fab-row { display: none; }
 .f-read { position: absolute; left: 0; right: 0; top: calc(42% + min(41vw, 190px) + 18px); text-align: center; }
 .f-read b { display: block; font: 700 46px/1 var(--font-ui); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .f-read span { display: block; margin-top: 8px; color: var(--muted); font: 500 16px/1.3 var(--font-ui); }
-.f-bar { display: flex; justify-content: center; gap: 8px; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 22px); }
-.f-bar .chip { height: 40px; padding: 0 16px; font-size: 14px; }
+.f-bar { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 20px); }
+.f-mode { width: min(100%, 380px); margin: 0; }
+.f-mode button { height: 38px; font-size: 14px; }
+.f-row { display: flex; gap: 8px; align-items: center; }
+.f-row .chip { height: 32px; }
+/* compass: a modest arrow in the middle; x-ray: the map fills the dial and a small pointer rides the rim */
+.f-rim { opacity: 0; transition: opacity .25s; }
+#finder.xray .f-rim { opacity: 1; }
+#finder.xray .f-arrow { opacity: 0; }
+.f-arrow { transition: opacity .25s; }
 #fPocket { position: fixed; inset: 0; z-index: 1700; background: #000; color: #2a3a4a; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
 #fPocket svg { width: 90px; height: 90px; }
 #fPocket b { font: 700 40px/1 var(--font-ui); color: #2c4a66; }
@@ -515,14 +523,22 @@ body.composing .fab-row { display: none; }
     </svg>
     <svg class="f-needle" id="fNeedle" viewBox="0 0 300 300" aria-hidden="true">
       <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7FD3FF"/><stop offset="1" stop-color="#0A84FF"/></linearGradient></defs>
-      <path d="M150 52 L182 150 L150 134 L118 150 Z" fill="url(#fg)"/>
+      <path class="f-arrow" d="M150 92 L170 152 L150 142 L130 152 Z" fill="url(#fg)"/>
+      <path class="f-rim" d="M150 4 L162 24 L150 19 L138 24 Z" fill="#2EB2FF"/>
     </svg>
     <div class="f-read"><b id="fDist">--</b><span id="fSub">Finding your way</span></div>
   </div>
   <div class="f-bar">
-    <button class="chip" id="fXray" type="button" aria-pressed="false">X-ray</button>
-    <button class="chip" id="fPocketBtn" type="button">Pocket mode</button>
-    <button class="chip" id="fOpen" type="button" hidden>Open in AR</button>
+    <div class="seg f-mode" role="group" aria-label="How to find it">
+      <button type="button" data-fmode="compass" aria-pressed="true">Compass</button><button type="button" data-fmode="xray" aria-pressed="false">X-ray</button><button type="button" data-fmode="ar" aria-pressed="false">AR path</button>
+    </div>
+    <div class="f-row">
+      <div class="seg mini" role="group" aria-label="Which way">
+        <button type="button" data-fway="path" aria-pressed="true">Sidewalks</button><button type="button" data-fway="direct" aria-pressed="false">Direct</button>
+      </div>
+      <button class="chip" id="fPocketBtn" type="button">Pocket</button>
+      <button class="chip" id="fOpen" type="button" hidden>Open</button>
+    </div>
   </div>
   <div id="fPocket" hidden><svg id="fPocketArrow" viewBox="0 0 100 100"><path d="M50 12 L66 60 L50 52 L34 60 Z" fill="#1c3f66"/></svg><b id="fPocketDist">--</b><span>Screen off to save battery. Directions are spoken.<br>Keep the phone unlocked; double-tap to wake.</span></div>
 </div>
@@ -1536,8 +1552,8 @@ const Compass = {
   _push(h) { h = (h % 360 + 360) % 360; if (this.heading == null) this.heading = h; else { const d = ((h - this.heading + 540) % 360) - 180; this.heading = (this.heading + d * .12 + 360) % 360; } }
 };
 
-function openDrop(id, force) {
-  const d = byId(id); if (!d) return;
+function openDrop(id, force, over) {
+  const d0 = byId(id); if (!d0) return; const d = over ? { ...d0, ...over } : d0;
   if (!force && !inRange(d)) return;
   const touch = matchMedia("(pointer: coarse)").matches;
   const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
@@ -2158,7 +2174,7 @@ async function startXR(d) {
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
   const wantLine = d.guide === "line" || d.road, wantArrow = d.guide === "arrow";
-  let org = null, roadGeo = null, roadFr = null; objOrigin(d).then(o => { org = o; if (wantLine) roadGeo = walkPath(o.geo, { lat: d.lat, lng: d.lng }); });
+  let org = null, roadGeo = null, roadFr = null; objOrigin(d).then(o => { org = o; if (wantLine) roadGeo = d.direct ? Promise.resolve([o.geo, { lat: d.lat, lng: d.lng }]) : walkPath(o.geo, { lat: d.lat, lng: d.lng }); });
   const road = wantLine ? goldenRoad(built.scene) : null, arrow = wantArrow ? guideArrow(built.scene) : null;
   let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null, ray = null, rayT = 0, pending = null;
   const floors = [];
@@ -2401,7 +2417,7 @@ async function startCamera(d, permP) {
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z);
     if (d.guide === "arrow") arrow = guideArrow(built.scene);
-    if (d.guide === "line" || d.road) { road = goldenRoad(built.scene); road.set(walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
+    if (d.guide === "line" || d.road) { road = goldenRoad(built.scene); road.set(d.direct ? Promise.resolve([org.geo, { lat: d.lat, lng: d.lng }]) : walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
     hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It stays put now: walk toward it and your steps bring it closer, no GPS. Drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? "" : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
@@ -3321,7 +3337,7 @@ $("#arBtn").addEventListener("click", openScan);
    black and speaks the directions.
    =================================================================== */
 const Finder = {
-  d: null, path: null, raf: 0, needle: 0, dial: 0, xray: false, pocket: false, lastSay: "", lastSayM: 0, lock: null, surround: null,
+  d: null, path: null, direct: false, raf: 0, needle: 0, dial: 0, xray: false, pocket: false, lastSay: "", lastSayM: 0, lock: null, surround: null,
   // heading of the top of the phone: iPhone gives it directly; Android from the absolute orientation
   hdg: null, _onAbs: null, _onRel: null,
   startHeading() {
@@ -3337,7 +3353,8 @@ const Finder = {
   async plan() {
     if (!S.me) return; const to = this.target(), from = { lat: S.me.lat, lng: S.me.lng };
     this.path = [from, to]; this.planFrom = from;
-    const p = await walkPath(from, to); if (this.d) this.path = p;
+    if (this.direct) return; // straight there: no sidewalks
+    const p = await walkPath(from, to); if (this.d && !this.direct) this.path = p;
   },
   // where to point now: a spot about 12 m further along the path from where you are, and what's left to walk
   guide() {
@@ -3356,7 +3373,8 @@ const Finder = {
     const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
     if (needPerm) DeviceOrientationEvent.requestPermission().catch(() => {});
     $("#finder").hidden = false; $("#fTitle").textContent = d.title; $("#fKind").textContent = d.kind === "model" ? itemName(d) : KIND[d.kind];
-    $("#fXray").setAttribute("aria-pressed", this.xray);
+    document.querySelectorAll("[data-fmode]").forEach(x => x.setAttribute("aria-pressed", x.dataset.fmode === (this.xray ? "xray" : "compass"))); $("#finder").classList.toggle("xray", this.xray);
+    document.querySelectorAll("[data-fway]").forEach(x => x.setAttribute("aria-pressed", x.dataset.fway === (this.direct ? "direct" : "path")));
     this.startHeading(); this.plan();
     if (S.me) Surround.get(S.me).then(dt => { this.surround = dt; });
     const loop = () => { this.raf = requestAnimationFrame(loop); this.frame(); }; loop();
@@ -3417,7 +3435,14 @@ const Finder = {
 const fmtWalk = m => m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km";
 const fmtSpeak = m => m < 1000 ? `${Math.max(5, Math.round(m / 5) * 5)} meters to go` : `${(m / 1000).toFixed(1)} kilometers to go`;
 $("#fClose").addEventListener("click", () => Finder.close());
-$("#fXray").addEventListener("click", () => { Finder.xray = !Finder.xray; $("#fXray").setAttribute("aria-pressed", Finder.xray); $("#finder").classList.toggle("xray", Finder.xray); });
+document.querySelectorAll("[data-fmode]").forEach(b => b.addEventListener("click", () => {
+  const m = b.dataset.fmode;
+  if (m === "ar") { const d = Finder.d; Finder.close(); openDrop(d.id, true, { guide: "line", direct: Finder.direct }); return; }
+  Finder.xray = m === "xray"; document.querySelectorAll("[data-fmode]").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#finder").classList.toggle("xray", Finder.xray);
+}));
+document.querySelectorAll("[data-fway]").forEach(b => b.addEventListener("click", () => {
+  Finder.direct = b.dataset.fway === "direct"; document.querySelectorAll("[data-fway]").forEach(x => x.setAttribute("aria-pressed", x === b)); Finder.plan();
+}));
 $("#fPocketBtn").addEventListener("click", () => Finder.setPocket(true));
 $("#fPocket").addEventListener("dblclick", () => Finder.setPocket(false));
 (() => { let last = 0; $("#fPocket").addEventListener("touchend", () => { const t = Date.now(); if (t - last < 350) Finder.setPocket(false); last = t; }); })();
