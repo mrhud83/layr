@@ -980,10 +980,13 @@ function renderCompose() {
         <p class="note" id="cStops">Put your finger on Start here to begin where you stand, or anywhere else. Start at the line's end to keep going. Grab the line to bend it.</p>`
       : `<div class="btn-row"><button class="btn primary grow" data-act="addwp" type="button">Add stop</button><button class="btn" data-act="undo" type="button">Undo</button></div>
         <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
+    ${d.kind === "model" ? `<div class="field"><button type="button" class="btn" data-act="sign" aria-pressed="${!!d.signOn}" style="justify-content:flex-start">${d.signOn ? "✓ Sign next to it" : "+ Add a sign"}</button>
+      ${d.signOn ? `<input id="cSign" type="text" maxlength="60" placeholder="What the sign says" value="${esc(d.signText || "")}">` : ""}</div>` : ""}
     <div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
     <div class="field"><label class="label" for="cRadius">Opens within</label><div class="range"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} M</span></div></div>
     <button class="btn ${d.kind === "route" ? "" : "primary"}" style="width:100%" data-act="save" type="button">${d.kind === "route" ? "Save route" : "Place drop here"}</button>`;
   $("#cTitle").addEventListener("input", e => d.title = e.target.value);
+  $("#cSign")?.addEventListener("input", e => d.signText = e.target.value);
   $("#cRadius").addEventListener("input", e => { d.radius = +e.target.value; $("#cRadiusV").textContent = d.radius + " M"; drawDraft(); });
   $("#cText")?.addEventListener("input", e => d.text = e.target.value);
   $("#dropBtn").hidden = true; $("#cross").hidden = d.kind === "route" && d.how === "draw"; summary(); resetScroll("c:" + d.kind);
@@ -1191,7 +1194,7 @@ function saveDraft(at) {
   } else if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
   else loc = at || draftCenter();
   if (d.kind === "message") { if (!d.text.trim()) return toast("Write a message first."); extra.text = d.text.trim(); extra.color = d.color; }
-  if (d.kind === "model") extra.model = d.model;
+  if (d.kind === "model") { extra.model = d.model; if (d.signOn && (d.signText || "").trim()) extra.sign = d.signText.trim().slice(0, 60); }
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
   History.push(drop.kind === "route" ? "new route" : "new drop");
@@ -1236,6 +1239,7 @@ body.addEventListener("click", e => {
   else if (a === "clear") { S.draft.stroke = []; S.draft.marks = []; drawDraft(); }
   else if (a === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
   else if (a === "obj") { S.draft.model = b.dataset.k; const rr = MODELS3D[b.dataset.k]?.radius; if (rr && S.draft.radius < rr) { S.draft.radius = rr; $("#cRadius").value = rr; $("#cRadiusV").textContent = rr + " M"; drawDraft(); } body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
+  else if (a === "sign") { S.draft.signOn = !S.draft.signOn; renderCompose(); if (S.draft.signOn) $("#cSign")?.focus(); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
   else if (a === "reroute") { History.push("reroute setting"); const d = byId(S.selected); d.reroute = d.reroute === false; save(); renderPins(); renderDetail(); }
@@ -1375,7 +1379,7 @@ function sanitize(d) {
   if (!d || !KIND[d.kind] || !num(d.lat) || !num(d.lng)) return null;
   const o = { id: String(d.id || uid()).slice(0, 32), created: num(d.created) ? d.created : Date.now(), kind: d.kind, title: String(d.title || "Shared drop").slice(0, 60),
     radius: clamp(num(d.radius) ? d.radius : 30, 10, 200), lat: clamp(d.lat, -90, 90), lng: clamp(d.lng, -180, 180), shared: true };
-  if (d.kind === "model") o.model = MODELS3D[d.model] || OBJECTS[d.model] ? d.model : "marker";
+  if (d.kind === "model") { o.model = MODELS3D[d.model] || OBJECTS[d.model] ? d.model : "marker"; if (d.sign) o.sign = String(d.sign).slice(0, 60); }
   if (d.kind === "message") { o.text = String(d.text || "").slice(0, 280); o.color = /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : COLORS[0]; }
   if (d.kind === "route") {
     o.points = (Array.isArray(d.points) ? d.points : []).filter(p => p && num(p.lat) && num(p.lng)).slice(0, 50).map(p => ({ lat: p.lat, lng: p.lng })); if (o.points.length < 2) return null;
@@ -1651,15 +1655,50 @@ function addStudioLight(scene, root, renderer) {
   const catcher = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: .32 }));
   catcher.rotation.x = -Math.PI / 2; catcher.position.y = .001; catcher.receiveShadow = true; root.add(catcher);
 }
+/* An optional sign the dropper wrote: a frosted card a foot to the side of the object, at your eye
+   height, turning to face you. Nothing floats above objects unless someone added one. */
+function makeSign(d, item, def, preview) {
+  const c = document.createElement("canvas"); c.width = 720; c.height = 260; const x = c.getContext("2d");
+  const rr = (X, Y, W, H, R) => { x.beginPath(); x.moveTo(X + R, Y); x.arcTo(X + W, Y, X + W, Y + H, R); x.arcTo(X + W, Y + H, X, Y + H, R); x.arcTo(X, Y + H, X, Y, R); x.arcTo(X, Y, X + W, Y, R); x.closePath(); };
+  rr(4, 4, 712, 252, 44); x.fillStyle = "rgba(20,22,26,.72)"; x.fill(); x.strokeStyle = "rgba(255,255,255,.22)"; x.lineWidth = 3; x.stroke();
+  x.fillStyle = "#3AB8FF"; rr(36, 40, 10, 180, 5); x.fill();
+  x.fillStyle = "#FFFFFF"; x.textBaseline = "middle"; x.font = '600 58px -apple-system, "SF Pro Text", "Inter Tight", system-ui, sans-serif';
+  // wrap to two lines
+  const words = String(d.sign).split(/\s+/), lines = [""];
+  for (const w of words) { const t = (lines.at(-1) + " " + w).trim(); if (x.measureText(t).width > 600 && lines.at(-1)) { if (lines.length === 2) { lines[1] += "…"; break; } lines.push(w); } else lines[lines.length - 1] = t; }
+  lines.forEach((l, i) => x.fillText(l, 76, lines.length === 1 ? 130 : 92 + i * 76));
+  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(.62, .224), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  card.renderOrder = 15;
+  const g = new THREE.Group(); g.add(card);
+  let side = (def?.size ? def.size / 2 : .3) + .3, eye = 1.5;
+  // width of the model itself (not its hidden label or loading ring), measured in the object's own frame
+  const measure = () => { const b = new THREE.Box3(); item.obj.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(item.obj.matrixWorld).invert();
+    item.obj.traverse(m => { if (m.isMesh && m.visible) { m.geometry.computeBoundingBox(); b.union(m.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld))); } });
+    if (!b.isEmpty()) { const sz = b.getSize(new THREE.Vector3()); side = Math.max(sz.x, sz.z) / 2 + .3; } };
+  if (item.ready) item.ready.then(measure); else setTimeout(measure, 0);
+  const tmp = new THREE.Vector3();
+  return {
+    g,
+    upd(cam, root) {
+      if (!cam) { g.position.set(side, eye, 0); return; }
+      tmp.setFromMatrixPosition(cam.matrixWorld); root.worldToLocal(tmp);
+      // a foot to your right of the object, and as high as your eyes
+      const a = Math.atan2(tmp.x, tmp.z), rx = Math.cos(a), rz = -Math.sin(a);
+      eye += (clamp(tmp.y, preview ? .8 : 1.2, preview ? 1.3 : 1.9) - eye) * .1;
+      g.position.set(rx * side, eye, rz * side);
+      card.rotation.y = Math.atan2(tmp.x - g.position.x, tmp.z - g.position.z);
+    }
+  };
+}
 function buildObjectScene(d, renderer, opt = {}) {
   const scene = new THREE.Scene(), root = new THREE.Group(), inner = new THREE.Group();
   scene.add(root); root.add(inner);
   const def = d.kind === "model" ? MODELS3D[d.model] : null, glb = !!def;
   const item = glb ? makeModel(d) : makeObject(d); inner.add(item.obj);
   if (glb) addStudioLight(scene, root, renderer);
-  // far away, a real-size object is a speck: a light pillar and a bigger label say where it is
-  const pillar = new THREE.Group(); const top = (def?.h || 1.2) + .3; pillar.add(seg(V(0, top, 0), V(0, top + 7, 0), 0x3AB8FF, 1), circle(.5, 0x3AB8FF, 1)); pillar.visible = false; root.add(pillar);
-  const w0 = item.label.scale.x, y0 = item.label.position.y;
+  item.label.visible = false; // no floating labels; a sign only if the dropper wrote one
+  const sign = d.sign && d.kind === "model" ? makeSign(d, item, def, opt.preview) : null; if (sign) root.add(sign.g);
   const game = def?.game === "cannon" && !window.__thumb ? cannonGame(d, scene, root, item, opt) : null;
   const camV = new THREE.Vector3(), rootV = new THREE.Vector3();
   let spawnT = null, lastLabel = -1, lastT = null;
@@ -1670,13 +1709,7 @@ function buildObjectScene(d, renderer, opt = {}) {
       const dt = lastT == null ? 0 : Math.min(t - lastT, .1); lastT = t;
       if (spawnT != null) { const k = clamp((t - spawnT) / .5, 0, 1), e = 1 - Math.pow(1 - k, 3); inner.scale.setScalar(.7 + .3 * e); inner.position.y = .05 * (1 - e); if (k >= 1) spawnT = null; }
       item.upd(t, cam);
-      if (cam && root.visible) {
-        camV.setFromMatrixPosition(cam.matrixWorld); root.getWorldPosition(rootV);
-        const m = Math.hypot(camV.x - rootV.x, camV.z - rootV.z), k = Math.max(1, m / 7);
-        item.label.scale.set(w0 * k, w0 * k * 150 / 640, 1); item.label.position.y = y0 + (k - 1) * .5;
-        const op = clamp((m - 12) / 25, 0, .8); pillar.visible = op > .02; pillar.children.forEach(c => c.material.opacity = op);
-        if (t - lastLabel > .25) { lastLabel = t; item.label.userData.set(d.title, (d.kind === "model" ? itemName(d) : KIND[d.kind]) + " · " + m.toFixed(m < 100 ? 1 : 0) + " M"); }
-      }
+      if (sign && root.visible) sign.upd(cam, root);
       if (game && cam) game.update(t, dt, cam);
     }
   };
@@ -2279,13 +2312,14 @@ function xrayLayer(data, opt) {
     [.85, .5, .25].forEach((op, i) => { if (!bands[i].length) return; const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(bands[i], 3)); g.add(new THREE.LineSegments(geo, lineMat(opt.preview && !dark ? 0x0A7FB0 : 0x4CC9F0, op))); });
     if (walls.length) { const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(walls, 3)); g.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: lc(dark ? 0x4CC9F0 : 0x0A7FB0), transparent: true, opacity: dark ? .05 : .08, depthWrite: false, side: THREE.DoubleSide, blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending }))); }
     if (opt.beacons) for (const d of S.drops) {
+      if (d.kind !== "route" && !opt.preview) continue; // objects show as themselves, no pillar or label
       const p = d.kind === "route" ? d.points[0] : d, m = dist(api.A.geo, p); if (m > opt.radius) continue;
       const base = api.at(p, 0), hgt = opt.preview ? .35 : 6;
       // the pillar starts above the object so it doesn't run through it
       const top0 = opt.preview || d.kind === "route" ? 0 : (MODELS3D[d.model]?.h || 1.2) + .3;
       g.add(seg(base.clone().add(V(0, top0, 0)), base.clone().add(V(0, top0 + hgt, 0)), 0x3AB8FF, .8));
       const ring = circle(opt.preview ? .04 : .6, 0x3AB8FF, .8); ring.position.copy(base); g.add(ring);
-      const l = labelSprite(0x3AB8FF, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += top0 + hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
+      if (d.kind === "route" || d.sign) { const l = labelSprite(0x3AB8FF, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += top0 + hgt + (opt.preview ? .06 : .3); l.userData.set(d.kind === "route" ? d.title : d.sign, fmtDist(m) + " · " + KIND[d.kind]); g.add(l); }
     }
     if (opt.obstacles) opt.obstacles.polys = polys;
     return g;
@@ -2398,8 +2432,10 @@ function routeRig(d, o) {
       let it = objs.get(dd.id);
       if (!it) {
         const item = dd.kind === "model" && MODELS3D[dd.model] ? makeModel(dd) : makeObject(dd);
-        item.label.visible = false; // the beacon above it carries the name
-        const g = new THREE.Group(); g.add(item.obj); objRoot.add(g); it = { item, g }; objs.set(dd.id, it);
+        item.label.visible = false;
+        const g = new THREE.Group(); g.add(item.obj); objRoot.add(g);
+        const sg = dd.sign ? makeSign(dd, item, MODELS3D[dd.model]) : null; if (sg) g.add(sg.g);
+        it = { item, g, sg }; objs.set(dd.id, it);
       }
       const q = xz(dd); it.g.position.set(q.x, ground(dd), q.z); it.g.rotation.y = Math.atan2(A.ox - q.x, A.oz - q.z);
     }
@@ -2675,7 +2711,7 @@ function routeRig(d, o) {
     startAt(user) { let best = 0, bm = Infinity; wps.forEach((w, i) => { const q = xz(w.p), m = Math.hypot(q.x - user.x, q.z - user.z); if (m < bm) { bm = m; best = i; } }); next = best; progress = 0; off = false; },
     complete: () => built && !o.noPath && next >= wps.length,
     update(t, user) {
-      if (built) objs.forEach(it => it.item.upd(t, null));
+      if (built) objs.forEach(it => { it.item.upd(t, null); if (it.sg && Heading.cam) it.sg.upd(Heading.cam, it.g); });
       if (!built || o.noPath) return;
       if (revealT == null) revealT = t;
       // the line draws itself out from the start, then stays
