@@ -309,6 +309,10 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-ctl button[aria-pressed="false"], .ar-ctl button:disabled { color: var(--dim); }
 #tunnelBtn { min-width: 84px; }
 .ar-ctl .wide { width: auto; padding: 0 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
+#hudBtn .slash { display: none; }
+#ar.hud-off #hudBtn .slash { display: inline; }
+.ar-bottom > .ar-ctl, .ar-bottom > .ar-hint { transition: transform .3s ease, opacity .3s ease; }
+#ar.hud-off .ar-bottom > .ar-ctl, #ar.hud-off .ar-bottom > .ar-hint { transform: translateY(40px); opacity: 0; pointer-events: none; }
 #arHit { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,40,30,0) 30%, rgba(255,30,20,.42) 68%, rgba(190,0,0,.9) 100%); mix-blend-mode: screen; }
 #arHit.on { opacity: 1; transition: none; }
 #arHit.off { transition: opacity .7s ease-out; }
@@ -317,7 +321,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 #arDead span { margin-top: 10px; font: 500 12px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; opacity: .8; }
 .ar-game { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
 .ar-game .pips { display: flex; gap: 5px; }
-.ar-game i { width: 14px; height: 8px; border: 1px solid #FF5A4E; }
+.ar-game i { width: 9px; height: 8px; border: 1px solid #FF5A4E; }
+.ar-game .pips { gap: 3px; }
 .ar-game i.hit { background: #FF5A4E; box-shadow: 0 0 8px #FF5A4E; }
 .ar-game b { font: 600 11px/1 var(--font-mono); letter-spacing: .14em; min-width: 92px; text-align: right; }
 .ar-game b.warn { color: #FF5A4E; }
@@ -376,11 +381,12 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
   <video id="arVideo" playsinline muted autoplay hidden></video>
   <div id="arStage"></div>
   <div id="arHit" aria-hidden="true"></div>
-  <div id="arDead" hidden><b>You perished</b><span>Hit 4 times</span></div>
+  <div id="arDead" hidden><b>You perished</b><span>Hit 10 times</span></div>
   <div class="ar-hud">
     <div class="ar-top">
       <div class="ar-title frame"><span class="label" id="arMode">AR</span><b id="arTitle">Drop</b></div>
-      <button class="ar-close frame" id="arClose" type="button" aria-label="Close AR view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <button class="ar-close frame" id="hudBtn" type="button" aria-label="Hide controls" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M4 4l16 16"/></svg></button>
+      <button class="ar-close frame" id="arClose" style="margin-left:0" type="button" aria-label="Close AR view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="ar-bottom">
       <div class="ar-ctl frame" id="arRouteCtl" hidden>
@@ -401,6 +407,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <button type="button" id="lvlDown" aria-label="Your floor down one level">−</button>
         <div class="val"><span class="label">Your floor</span><b id="lvlVal">GROUND</b></div>
         <button type="button" id="lvlUp" aria-label="Your floor up one level">+</button>
+        <button type="button" class="wide" id="terrBtn" aria-pressed="true">Terrain</button>
       </div>
       <div class="ar-ctl frame" id="arObjCtl" hidden>
         <div class="val"><span class="label">Placement</span><b id="lockVal">LOCKED</b></div>
@@ -408,7 +415,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <button type="button" class="wide" id="qlBtn" hidden>Quick Look</button>
       </div>
       <div class="ar-game frame" id="arGame" hidden>
-        <span class="label">Hits</span><span class="pips"><i></i><i></i><i></i><i></i></span><b id="gameMsg">TRACKING</b>
+        <span class="label">Hits</span><span class="pips"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><b id="gameMsg">TRACKING</b>
       </div>
       <div class="ar-hint frame" id="arHint">Starting</div>
     </div>
@@ -1332,7 +1339,7 @@ function showAR(d, mode) {
   $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
   $("#arObjCtl").hidden = true; $("#arGame").hidden = true; $("#qlBtn").hidden = true;
-  $("#arLvlCtl").hidden = d.kind !== "route" || scan || mode === "viewer";
+  $("#arLvlCtl").hidden = d.kind !== "route" || mode === "viewer"; $("#terrBtn").setAttribute("aria-pressed", XRS.terrain);
   $("#aimBtn").hidden = scan;
   $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); showView();
   Heading.rig = null;
@@ -1350,6 +1357,10 @@ function closeAR() {
   Compass.stop(); $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
 }
 $("#arClose").addEventListener("click", closeAR);
+// one tap hides every AR control except this button, close and the hit counter; tap again to bring them back
+const setHud = off => { $("#ar").classList.toggle("hud-off", off); $("#hudBtn").setAttribute("aria-label", off ? "Show controls" : "Hide controls"); store.set("layr.hudOff", off); };
+$("#hudBtn").addEventListener("click", () => setHud(!$("#ar").classList.contains("hud-off")));
+setHud(store.get("layr.hudOff", false));
 // Taps on HUD controls must not count as AR "select" taps.
 document.querySelectorAll(".ar-hud button").forEach(b => b.addEventListener("beforexrselect", e => e.preventDefault()));
 
@@ -1602,10 +1613,10 @@ function hitFlash() {
 }
 function perish(d) {
   $("#arDead").hidden = false; $("#arHit").className = "on"; navigator.vibrate?.([200, 80, 400]);
-  setTimeout(() => { closeAR(); setUI(true); toast(`You perished. ${d.title || "The laser cannon"} hit you 4 times.`); }, 1500);
+  setTimeout(() => { closeAR(); setUI(true); toast(`You perished. ${d.title || "The laser cannon"} hit you 10 times.`); }, 1500);
 }
 function cannonGame(d, scene, root, item, opt) {
-  const SPEED = opt.preview ? 9 : 24, RANGE = 200, HIT_R = .24, LIVES = 4;
+  const SPEED = opt.preview ? 7 : 16, RANGE = 200, HIT_R = .2, LIVES = 10;
   const bolts = [], geo = new THREE.PlaneGeometry(1, 1), mat = boltMat();
   const flareMat = new THREE.SpriteMaterial({ map: glowTex(), color: 0xff3020, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   let turret = null, tips = [], light = null, flash = null, armedT = null, nextT = 0, hits = 0, dead = false, still = 0, speed = 0, shot = 0, lastMsg = "";
@@ -1624,7 +1635,7 @@ function cannonGame(d, scene, root, item, opt) {
   function fire(t) {
     const tip = tips[shot++ % tips.length]; const from = tip.getWorldPosition(new THREE.Vector3());
     // aim at where it thinks you are, plus a miss that shrinks the longer you stand still
-    const sigma = .1 + 1.0 * Math.exp(-still / 2.2) + Math.min(speed, 3) * .15;
+    const sigma = .32 + 1.3 * Math.exp(-still / 3) + Math.min(speed, 3) * .2;
     const dir = tmp.copy(E).sub(from).normalize(), side = tmp2.set(0, 1, 0).cross(dir).normalize(), up = new THREE.Vector3().crossVectors(dir, side);
     const r = sigma * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
     const aimAt = E.clone().addScaledVector(side, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r * .7);
@@ -1710,7 +1721,7 @@ function geoPlace(o, h, f, ox, oz) {
 }
 // Elevation tiles are a few metres off at best, which is enough to float an object, so they only count
 // for real hills: fading in from 40 m to 120 m, capped at an 8% grade. Closer, it sits on your ground level.
-const objLift = o => { const k = clamp((o.m - 40) / 80, 0, 1); return clamp(o.dz, -.08 * o.m, .08 * o.m) * k * k * (3 - 2 * k); };
+const objLift = o => { if (!XRS.terrain) return 0; const k = clamp((o.m - 40) / 80, 0, 1); return clamp(o.dz, -.08 * o.m, .08 * o.m) * k * k * (3 - 2 * k); };
 const placedHint = (o, compass) => compass
   ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away, and locked.${S.sim ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
   : "No compass reading, so it's straight ahead at its real distance. Tap Move it to set it by hand.";
@@ -1887,18 +1898,27 @@ async function startXR(d) {
 }
 
 /* ---------- camera + motion sensors (no WebXR). Rotation only ---------- */
+/* The 3D camera must see exactly what the video shows, or the virtual ground tilts away from the real one.
+   Phone main cameras cover about 68° on the long side of the sensor; object-fit: cover crops the rest. */
+function videoFov() {
+  const v = $("#arVideo"), vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return 62;
+  const L = rad(68), S = 2 * Math.atan(Math.tan(L / 2) * Math.min(vw, vh) / Math.max(vw, vh)), fovV = vh >= vw ? L : S;
+  const scale = Math.max(innerWidth / vw, innerHeight / vh), f = (innerHeight / scale) / vh;
+  return deg(2 * Math.atan(f * Math.tan(fovV / 2)));
+}
 function cameraRig() {
-  const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, .05, 2000);
+  const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(videoFov(), innerWidth / innerHeight, .05, 2000);
+  const fitFov = () => { cam.fov = videoFov(); cam.updateProjectionMatrix(); }; $("#arVideo").addEventListener("loadedmetadata", fitFov); $("#arVideo").addEventListener("resize", fitFov);
   cam.position.set(0, 1.45, 0);
   const target = new THREE.Quaternion(); let ori = null;
   const onOri = e => { if (e.alpha != null) ori = e; };
   addEventListener("deviceorientation", onOri);
-  const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
+  const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; fitFov(); };
   addEventListener("resize", onResize);
   return {
     renderer, cam, hasOri: () => !!ori,
     step() { if (ori) { oriQuat(target, ori.alpha, ori.beta, ori.gamma); cam.quaternion.slerp(target, .85); } cam.updateMatrixWorld(); },
-    stop() { removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); renderer.dispose(); }
+    stop() { removeEventListener("deviceorientation", onOri); removeEventListener("resize", onResize); $("#arVideo").removeEventListener("loadedmetadata", fitFov); $("#arVideo").removeEventListener("resize", fitFov); renderer.dispose(); }
   };
 }
 async function openCameraFeed() {
@@ -1990,7 +2010,7 @@ function startViewer(d, note) {
    since it's map data), a live depth scan on phones that support it, and
    a short-range planner that bends the line to the next stop around both.
    =================================================================== */
-const XRS = { xray: true, view: "ground" };
+const XRS = { xray: true, view: "ground", terrain: store.get("layr.terrain", true) };
 const Surround = {
   mirrors: ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"],
   cache: new Map(),
@@ -2099,7 +2119,7 @@ function xrayLayer(data, opt) {
   const c0 = opt.center || S.me, terr = c0 ? terrainGrid(c0, opt.preview ? opt.radius : Math.min(opt.radius, 70)) : null;
   return api => {
     const g = new THREE.Group(), bands = [[], [], []], walls = [], polys = [], s = api.A.s;
-    if (terr) { const tgrp = new THREE.Group(); g.add(tgrp); const fill = v => { if (v && !tgrp.children.length) tgrp.add(terrainMesh(v, api, opt)); }; if (terr.v) fill(terr.v); else terr.p.then(fill); }
+    if (terr && (opt.preview || XRS.terrain)) { const tgrp = new THREE.Group(); g.add(tgrp); const fill = v => { if (v && !tgrp.children.length) tgrp.add(terrainMesh(v, api, opt)); }; if (terr.v) fill(terr.v); else terr.p.then(fill); }
     // streets and footpaths on the ground: usually far better mapped than building heights
     const foot = [], road = [];
     for (const w of ways) {
@@ -2262,9 +2282,9 @@ function routeRig(d, o) {
     return { x: A.ox + (A.f.x * fc + A.r.x * rc) * A.s, z: A.oz + (A.f.z * fc + A.r.z * rc) * A.s };
   }
   // Height of the ground at p relative to the ground where you stand, from the elevation tiles.
-  // Near you the floor the camera sees is the truth, so terrain eases in from 6 m to 30 m.
-  // Grades past 20% are tile noise more often than real hills.
-  const relE = (e, dh) => { const dz = (e == null ? A.e0 : e) - A.e0; if (o.preview) return dz; const k = clamp((dh - 6) / 24, 0, 1); return clamp(dz, -.2 * dh, .2 * dh) * k * k * (3 - 2 * k); };
+  // Near you the floor the camera sees is the truth: within 40 m the ground is flat at your level, then
+  // real hills ease in by 120 m, capped at a 10% grade. Terrain off keeps it all flat.
+  const relE = (e, dh) => { const dz = (e == null ? A.e0 : e) - A.e0; if (o.preview) return dz; if (!XRS.terrain) return 0; const k = clamp((dh - 40) / 80, 0, 1); return clamp(dz, -.1 * dh, .1 * dh) * k * k * (3 - 2 * k); };
   const rel = p => relE(eOf(p), dist(A.geo, p));
   // Upstairs (A.up metres above the street): the line starts on your floor and eases down to the ground,
   // over at least 10 m or three times the drop, whichever is longer.
@@ -2285,9 +2305,8 @@ function routeRig(d, o) {
       if (vS > uReveal) discard;
       float x = abs(vV);
       float core = exp(-x * x * 60.), glow = exp(-x * x * 5.) * .28;
-      float ch = fract((vS - uTime * 1.6) / 2.2 + x * .3);
-      float chev = smoothstep(0., .04, ch) * (1. - smoothstep(.06, .16, ch)) * (1. - x) * .45;
-      float a = (core * .75 + glow + chev) * (1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS))) * (1. - smoothstep(.85, 1., x));
+      float pulse = .72 + .28 * sin(uTime * 1.3);
+      float a = (core * .75 + glow) * pulse * (1. - .7 * (1. - smoothstep(uProg - 6., uProg - 1., vS))) * (1. - smoothstep(.85, 1., x));
       gl_FragColor = vec4(uCol * a, a);
     }`;
   const shared = { uTime: { value: 0 } };
@@ -2374,24 +2393,28 @@ function routeRig(d, o) {
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h21(i), h21(i + vec2(1., 0.)), f.x), mix(h21(i + vec2(0., 1.)), h21(i + vec2(1., 1.)), f.x), f.y); }`;
   const TUN_WALL = `uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vU; varying float vD;
     ${TUN_NOISE}
+    vec3 hue(float h){ return clamp(abs(mod(h * 6. + vec3(0., 4., 2.), 6.) - 3.) - 1., 0., 1.); }
     void main(){
       if (vS > uReveal) discard;
       float arc = sin(vU * 3.14159);
-      vec2 q = vec2(vS * .22 - uTime * .35, vU * 5.);
-      float n = n2(q) * .55 + n2(q * 2.1 + vec2(uTime * .15, 0.)) * .3 + n2(q * 4.3) * .15;
-      float aur = smoothstep(.42, .85, n);
-      vec3 deep = mix(vec3(.025, .012, .08), vec3(.08, .025, .2), arc);
-      vec3 tint = mix(vec3(.15, .85, 1.), vec3(.78, .28, 1.), n2(q * .4 + 7.));
-      float rib = smoothstep(.465, .5, abs(fract(vS / 3.) - .5));
-      float ph = mod(vS - uTime * 6., 24.), pulse = exp(-pow(ph - 3., 2.) * .5);
+      vec2 q = vec2(vS * .22 - uTime * .45, vU * 5.);
+      float n = n2(q) * .55 + n2(q * 2.1 + vec2(uTime * .2, 0.)) * .3 + n2(q * 4.3) * .15;
+      float aur = smoothstep(.38, .85, n);
+      // colours drift through the spectrum along the tunnel and over time
+      vec3 tint = hue(fract(vS * .018 - uTime * .05 + n * .25));
+      vec3 deep = mix(vec3(.04, .015, .12), vec3(.12, .04, .26), arc);
+      float rd = abs(fract(vS / 3.) - .5), rib = smoothstep(.465, .5, rd);
+      vec3 ribCol = hue(fract(vS / 24. + uTime * .08));
+      float ph = mod(vS - uTime * 5., 18.), pulse = exp(-pow(ph - 3., 2.) * .35);
       vec2 g = vec2(vS * 3., vU * 36.); float hs = h21(floor(g));
-      float tw = step(.975, hs) * smoothstep(.45, 0., length(fract(g) - .5)) * (.5 + .5 * sin(uTime * 4. + hs * 60.));
-      vec3 c;
-      if (gl_FrontFacing) c = deep + tint * aur * (.35 + .45 * arc) + vec3(1., .66, .16) * rib * 1.1 + vec3(.35, .85, 1.) * pulse * .7 + vec3(1.) * tw;
-      else c = deep * .7 + vec3(1., .66, .16) * rib * .55 + tint * aur * .08;
-      c *= 1. - .65 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
-      c = mix(c, deep * .6, smoothstep(40., 140., vD) * .6);
-      gl_FragColor = vec4(c, 1.);
+      float tw = step(.955, hs) * smoothstep(.45, 0., length(fract(g) - .5)) * (.5 + .5 * sin(uTime * 5. + hs * 60.));
+      vec3 c = deep + tint * aur * (.45 + .5 * arc) + ribCol * rib * 1.2 + vec3(.6, .9, 1.) * pulse * .6 + mix(vec3(1.), hue(hs), .5) * tw * 1.3;
+      if (!gl_FrontFacing) c *= .55;
+      c *= 1. - .6 * (1. - smoothstep(uProg - 6., uProg - 1., vS));
+      // a little see-through: the aurora and ribs are solid, the dark gaps let the world show
+      float alpha = clamp(.42 + aur * .4 + rib * .5 + tw + pulse * .2, 0., .92) * (gl_FrontFacing ? 1. : .7);
+      alpha *= 1. - smoothstep(60., 160., vD) * .5;
+      gl_FragColor = vec4(c, alpha);
     }`;
   const TUN_FLOOR = `uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vU;
     void main(){
@@ -2429,11 +2452,11 @@ function routeRig(d, o) {
     }
     const U = { uTime: { value: 0 }, uProg: { value: 0 }, uReveal: { value: 0 }, uPx: { value: innerHeight * Math.min(devicePixelRatio || 1, 2) * k } };
     const wg = new THREE.BufferGeometry(); wg.setAttribute("position", new THREE.BufferAttribute(pos, 3)); wg.setAttribute("aS", new THREE.BufferAttribute(aS, 1)); wg.setAttribute("aU", new THREE.BufferAttribute(aU, 1)); wg.setIndex(idx);
-    const walls = new THREE.Mesh(wg, new THREE.ShaderMaterial({ uniforms: U, vertexShader: TUN_V, fragmentShader: TUN_WALL, side: THREE.DoubleSide }));
+    const walls = new THREE.Mesh(wg, new THREE.ShaderMaterial({ uniforms: U, vertexShader: TUN_V, fragmentShader: TUN_WALL, side: THREE.DoubleSide, transparent: true, depthWrite: false }));
     const fg = new THREE.BufferGeometry(); fg.setAttribute("position", new THREE.BufferAttribute(fp, 3)); fg.setAttribute("aS", new THREE.BufferAttribute(fS, 1)); fg.setAttribute("aU", new THREE.BufferAttribute(fU, 1)); fg.setIndex(fidx);
     const floor = new THREE.Mesh(fg, new THREE.ShaderMaterial({ uniforms: U, vertexShader: TUN_V, fragmentShader: TUN_FLOOR, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     // motes drifting inside the arch
-    const M = Math.min(3500, N * 2), mp = new Float32Array(M * 3), mS = new Float32Array(M), mR = new Float32Array(M);
+    const M = Math.min(5000, N * 3), mp = new Float32Array(M * 3), mS = new Float32Array(M), mR = new Float32Array(M);
     for (let n = 0; n < M; n++) {
       const i = Math.floor(Math.random() * (N + 1)), P = pts[i], [rx, rz] = rights[i], u = (Math.random() * 2 - 1) * W * .8, v = (.25 + Math.random() * 1.3) * k;
       mp[n * 3] = P.x + rx * u; mp[n * 3 + 1] = P.y + v; mp[n * 3 + 2] = P.z + rz * u; mS[n] = i / N * total; mR[n] = Math.random();
@@ -2443,7 +2466,7 @@ function routeRig(d, o) {
       vertexShader: `attribute float aS; attribute float aR; uniform float uTime; uniform float uReveal; uniform float uPx; varying float vA;
         void main(){ vec3 p = position; p.y += sin(uTime * (.5 + aR) + aR * 20.) * .12; vec4 mv = modelViewMatrix * vec4(p, 1.);
           gl_Position = projectionMatrix * mv; gl_PointSize = clamp(uPx * (.025 + aR * .035) / -mv.z, 0., 48.); vA = (aS > uReveal ? 0. : 1.) * (.45 + .55 * sin(uTime * 2. + aR * 30.)); }`,
-      fragmentShader: `varying float vA; void main(){ vec2 d = gl_PointCoord - .5; float a = exp(-dot(d, d) * 18.) * vA; gl_FragColor = vec4(vec3(.75, .92, 1.) * a, a); }` }));
+      fragmentShader: `varying float vA; void main(){ vec2 d = gl_PointCoord - .5; float a = exp(-dot(d, d) * 18.) * vA; gl_FragColor = vec4(mix(vec3(.75, .92, 1.), vec3(1., .6, .95), step(.5, fract(vA * 7.))) * a, a); }` }));
     const g = new THREE.Group(); g.add(walls, floor, motes); g.userData.U = U;
     return g;
   }
@@ -2521,7 +2544,7 @@ function routeRig(d, o) {
       wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
       paintTunnel(t, e);
       shared.uTime.value = t;
-      if (band) { band.userData.U.uProg.value = progress; band.userData.U.uReveal.value = e >= 1 ? 1e9 : e * total; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }
+      if (band) { band.userData.U.uProg.value = progress; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }
       if (user) {
         if (reroute) follow(user);
         else { const w = wps[next]; if (w) { const q = xz(w.p); if (Math.hypot(q.x - user.x, q.z - user.z) / A.s < o.reach) next = Math.min(next + 1, wps.length); } }
@@ -2550,6 +2573,10 @@ const Level = {
   set(n, auto) { this.n = clamp(n, 0, 30); if (!auto) this.manual = true; $("#lvlVal").textContent = this.n ? `FLOOR +${this.n} · ${Math.round(this.n * this.H)} M UP` : "GROUND"; this.cb?.(this.n * this.H); },
   reset(cb) { this.manual = false; this.cb = cb; this.set(0, true); }
 };
+$("#terrBtn").addEventListener("click", () => {
+  XRS.terrain = !XRS.terrain; store.set("layr.terrain", XRS.terrain); $("#terrBtn").setAttribute("aria-pressed", XRS.terrain); AR.setTunnel?.();
+  hint(XRS.terrain ? "Terrain on. Hills more than 40 m away rise and fall." : "Terrain off. Everything sits flat at your ground level.");
+});
 $("#lvlDown").addEventListener("click", () => { Level.set(Level.n - 1); hint(Level.n ? "The line starts on your floor and eases down to the street." : "Ground level."); });
 $("#lvlUp").addEventListener("click", () => { Level.set(Level.n + 1); hint("The line starts on your floor and eases down to the street."); });
 function guessLevel(dt, o) {
