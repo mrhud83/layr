@@ -15,9 +15,11 @@ All models were optimized for phones (1024 px WebP textures, merged meshes). The
 | streetlamp.glb | Poly Haven, "Street Lamp 01" | Poly Haven | CC0 1.0 |
 | firepit.glb | Poly Haven, "Stone Fire Pit" | Poly Haven | CC0 1.0 |
 | boombox.glb | Poly Haven, "Boombox" | Poly Haven | CC0 1.0 |
+| cannon.glb | Kenney Space Kit, "turret_double" (restyled in code with barrels and emitters) | Kenney (kenney.nl) | CC0 1.0 |
 | fox.glb | Khronos glTF Sample Assets, "Fox" | Model: PixelMannen (CC0 1.0). Rigging and animation: tomkranis (CC BY 4.0). glTF conversion: AsoboStudio and scurest (CC BY 4.0) | CC0 1.0 + CC BY 4.0 |
 
 Poly Haven: https://polyhaven.com/models
+Kenney: https://kenney.nl/assets/space-kit
 Khronos: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox
 
 CC BY 4.0 requires credit. Keep the Fox credit wherever the app is distributed.

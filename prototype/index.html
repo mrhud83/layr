@@ -308,6 +308,20 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .ar-ctl .val b { font: 600 13px/1 var(--font-mono); white-space: nowrap; }
 .ar-ctl button[aria-pressed="false"] { color: var(--dim); }
 .ar-ctl .wide { width: auto; padding: 0 12px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
+#arHit { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,40,30,0) 30%, rgba(255,30,20,.42) 68%, rgba(190,0,0,.9) 100%); mix-blend-mode: screen; }
+#arHit.on { opacity: 1; transition: none; }
+#arHit.off { transition: opacity .7s ease-out; }
+#arDead { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; background: rgba(120,0,0,.55); color: #fff; }
+#arDead b { font: 700 28px/1.1 var(--font-mono); letter-spacing: .2em; text-transform: uppercase; }
+#arDead span { margin-top: 10px; font: 500 12px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; opacity: .8; }
+.ar-game { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.ar-game .pips { display: flex; gap: 5px; }
+.ar-game i { width: 14px; height: 8px; border: 1px solid #FF5A4E; }
+.ar-game i.hit { background: #FF5A4E; box-shadow: 0 0 8px #FF5A4E; }
+.ar-game b { font: 600 11px/1 var(--font-mono); letter-spacing: .14em; min-width: 92px; text-align: right; }
+.ar-game b.warn { color: #FF5A4E; }
+@keyframes shake { 0%,100% { transform: none; } 25% { transform: translate(5px,-3px); } 50% { transform: translate(-4px,4px); } 75% { transform: translate(3px,2px); } }
+#ar.shake #arStage { animation: shake .25s linear; }
 
 @media (prefers-reduced-motion: reduce) { .panel-bar .chev { transition: none; } }
 </style>
@@ -360,6 +374,8 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 <div id="ar" hidden>
   <video id="arVideo" playsinline muted autoplay hidden></video>
   <div id="arStage"></div>
+  <div id="arHit" aria-hidden="true"></div>
+  <div id="arDead" hidden><b>You perished</b><span>Hit 4 times</span></div>
   <div class="ar-hud">
     <div class="ar-top">
       <div class="ar-title frame"><span class="label" id="arMode">AR</span><b id="arTitle">Drop</b></div>
@@ -368,7 +384,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
     <div class="ar-bottom">
       <div class="ar-ctl frame" id="arRouteCtl" hidden>
         <button type="button" id="aglDown" aria-label="Lower the line">−</button>
-        <div class="val"><span class="label">Line height</span><b id="aglVal">0.6 M</b></div>
+        <div class="val"><span class="label">Line height</span><b id="aglVal">0.9 M</b></div>
         <button type="button" id="aglUp" aria-label="Raise the line">+</button>
         <button type="button" class="wide" id="arRealign">Realign</button>
         <button type="button" class="wide" id="tunnelBtn" aria-pressed="false">Tunnel</button>
@@ -380,9 +396,18 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
         <button type="button" class="wide" id="aimBtn">Aim</button>
         <button type="button" class="wide" id="xrayBtn" aria-pressed="true">X-ray</button>
       </div>
+      <div class="ar-ctl frame" id="arLvlCtl" hidden>
+        <button type="button" id="lvlDown" aria-label="Your floor down one level">−</button>
+        <div class="val"><span class="label">Your floor</span><b id="lvlVal">GROUND</b></div>
+        <button type="button" id="lvlUp" aria-label="Your floor up one level">+</button>
+      </div>
       <div class="ar-ctl frame" id="arObjCtl" hidden>
         <div class="val"><span class="label">Placement</span><b id="lockVal">LOCKED</b></div>
         <button type="button" class="wide" id="moveBtn">Move it</button>
+        <button type="button" class="wide" id="qlBtn" hidden>Quick Look</button>
+      </div>
+      <div class="ar-game frame" id="arGame" hidden>
+        <span class="label">Hits</span><span class="pips"><i></i><i></i><i></i><i></i></span><b id="gameMsg">TRACKING</b>
       </div>
       <div class="ar-hint frame" id="arHint">Starting</div>
     </div>
@@ -443,7 +468,8 @@ const MODELS3D = {
   lantern:    { name: "Lantern",         file: "lantern.glb",    h: .5 },
   streetlamp: { name: "Street lamp",     file: "streetlamp.glb", h: 3.0 },
   firepit:    { name: "Fire pit",        file: "firepit.glb",    size: 1.2 },
-  boombox:    { name: "Boombox",         file: "boombox.glb",    h: .45 }
+  boombox:    { name: "Boombox",         file: "boombox.glb",    h: .45 },
+  cannon:     { name: "Laser cannon",    file: "cannon.glb",     h: 1.5, game: "cannon", radius: 150 }
 };
 const OBJECTS = {
   marker:    { name: "Pin",  color: 0xFFB020, icon: '<path d="M13 3v16"/><path d="M13 5l4 4-4 4-4-4 4-4Z"/><ellipse cx="13" cy="21" rx="7" ry="2.2"/>' },
@@ -716,7 +742,7 @@ function startGeo() {
   const timer = setTimeout(() => { if (!S.me) useSim("No GPS fix yet"); }, 7000);
   navigator.geolocation.watchPosition(pos => {
     clearTimeout(timer);
-    S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, alt: pos.coords.altitude, altAcc: pos.coords.altitudeAccuracy };
     (S.fixes ||= []).push({ ...S.lastGps, t: Date.now() }); if (S.fixes.length > 10) S.fixes.shift();
     if (!S.sim) setMe({ ...S.lastGps });
   }, err => { clearTimeout(timer); if (!S.me) useSim(err.code === 1 ? "Location permission denied" : "Location unavailable"); },
@@ -1131,7 +1157,7 @@ body.addEventListener("click", e => {
   else if (a === "pan") { S.draft.pan = !S.draft.pan; renderCompose(); }
   else if (a === "clear") { S.draft.stroke = []; S.draft.marks = []; drawDraft(); }
   else if (a === "kind") { S.draft.kind = b.dataset.k; renderCompose(); }
-  else if (a === "obj") { S.draft.model = b.dataset.k; body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
+  else if (a === "obj") { S.draft.model = b.dataset.k; const rr = MODELS3D[b.dataset.k]?.radius; if (rr && S.draft.radius < rr) { S.draft.radius = rr; $("#cRadius").value = rr; $("#cRadiusV").textContent = rr + " M"; drawDraft(); } body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
   else if (a === "reroute") { History.push("reroute setting"); const d = byId(S.selected); d.reroute = d.reroute === false; save(); renderPins(); renderDetail(); }
@@ -1290,8 +1316,10 @@ function openDrop(id, force) {
     if (touch && navigator.mediaDevices?.getUserMedia) return startRouteCamera(d, perm);
     return startRouteViewer(d);
   }
+  const game = !!MODELS3D[d.model]?.game; if (game) Sound.unlock();
   if (S.xr) return startXR(d);
-  if (QUICKLOOK) return openQuickLook(d);
+  // Quick Look can't place by map position, so use it only when you're standing about at the spot
+  if (QUICKLOOK && !game && (!S.me || dist(S.me, d) <= 12)) return openQuickLook(d);
   if (touch && navigator.mediaDevices?.getUserMedia) return startCamera(d, perm);
   startViewer(d, "No AR camera here. Drag to orbit.");
 }
@@ -1302,7 +1330,8 @@ function showAR(d, mode) {
   const scan = d.id === "__scan";
   $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
-  $("#arObjCtl").hidden = true;
+  $("#arObjCtl").hidden = true; $("#arGame").hidden = true; $("#qlBtn").hidden = true;
+  $("#arLvlCtl").hidden = d.kind !== "route" || scan || mode === "viewer";
   $("#aimBtn").hidden = scan;
   $("#xrayBtn").setAttribute("aria-pressed", XRS.xray); $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel);
   Heading.rig = null;
@@ -1312,7 +1341,7 @@ $("#xrayBtn").addEventListener("click", () => { XRS.xray = !XRS.xray; $("#xrayBt
 $("#tunnelBtn").addEventListener("click", () => { XRS.tunnel = !XRS.tunnel; $("#tunnelBtn").setAttribute("aria-pressed", XRS.tunnel); AR.setTunnel?.(XRS.tunnel); hint(XRS.tunnel ? "Tunnel view. Walk through the arches." : "Line view."); });
 function closeAR() {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
-  Compass.stop(); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
+  Compass.stop(); $("#arGame").hidden = true; $("#arDead").hidden = true; $("#arHit").className = ""; $("#ar").classList.remove("shake"); $("#ar").hidden = true; $("#arVideo").hidden = true; $("#arStage").innerHTML = "";
 }
 $("#arClose").addEventListener("click", closeAR);
 // Taps on HUD controls must not count as AR "select" taps.
@@ -1434,6 +1463,30 @@ function fitModel(m, def) {
   m.position.set(-c.x, -box.min.y, -c.z); m.updateMatrixWorld(true);
   return box;
 }
+/* restyle the Kenney turret (CC0) as a laser cannon: gunmetal, red emitters, long barrels */
+function dressCannon(m) {
+  const turret = m.getObjectByName("turret"); if (!turret) return null;
+  const tips = [];
+  turret.rotation.order = "YXZ";
+  // the Kenney turret has blunt pods; give them barrels with red emitters so it reads as a laser
+  // restyle: gunmetal and graphite instead of the kit's toy colours
+  const skin = { dark: [0x0b0d10, .6, .55], metal: [0x23272d, .9, .32], metalDark: [0x15181c, .9, .4], metalRed: [0x1a1d22, .8, .36] };
+  m.traverse(o => { if (!o.isMesh) return; const k = skin[o.material?.name]; if (k) o.material = new THREE.MeshStandardMaterial({ color: k[0], metalness: k[1], roughness: k[2] }); });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x1b1f25, metalness: .95, roughness: .25 });
+  const hot = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff0804, emissiveIntensity: 1.3, metalness: .2, roughness: .4 });
+  const strip = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff0a04, emissiveIntensity: 1.2 });
+  [-.32, .32].forEach(x => {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(.026, .04, .62, 20), metal); b.rotation.x = Math.PI / 2; b.position.set(x, .2, .58); b.castShadow = true;
+    const shroud = new THREE.Mesh(new THREE.CylinderGeometry(.055, .055, .14, 20), metal); shroud.rotation.x = Math.PI / 2; shroud.position.set(x, .2, .34);
+    const rings = [.5, .64, .78].map(z => { const r = new THREE.Mesh(new THREE.TorusGeometry(.04, .009, 8, 28), hot); r.position.set(x, .2, z); return r; });
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(.022, 16, 12), hot); lens.position.set(x, .2, .89);
+    const side = new THREE.Mesh(new THREE.BoxGeometry(.012, .03, .34), strip); side.position.set(x + Math.sign(x) * .132, .2, 0);
+    const tip = new THREE.Object3D(); tip.position.set(x, .2, .92);
+    turret.add(b, shroud, ...rings, lens, side, tip); tips.push(tip);
+  });
+  const eye = new THREE.Mesh(new THREE.BoxGeometry(.16, .025, .01), strip); eye.position.set(0, .3, .28); turret.add(eye);
+  return { turret, tips };
+}
 function makeModel(d) {
   const def = MODELS3D[d.model], g = new THREE.Group();
   const label = labelSprite(0xE6E8EB, .9); label.position.y = (def.h || 1) + .3; g.add(label);
@@ -1441,7 +1494,8 @@ function makeModel(d) {
   const ph = new THREE.Group(); ph.add(circle(.3, 0xFFB020, .8), ticks(.33, 24, .04, 0xFFB020, .5)); g.add(ph); // shown while loading
   let mixer = null, lastT = null;
   const ready = loadGLB(def.file).then(gltf => {
-    const m = gltf.scene, box = fitModel(m, def);
+    const m = gltf.scene; if (def.game === "cannon") g.userData.cannon = dressCannon(m);
+    const box = fitModel(m, def);
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
     g.add(m); g.remove(ph); disposeTree(ph);
     label.position.y = (box.max.y - box.min.y) + .28;
@@ -1460,27 +1514,199 @@ function addStudioLight(scene, root, renderer) {
   const catcher = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: .32 }));
   catcher.rotation.x = -Math.PI / 2; catcher.position.y = .001; catcher.receiveShadow = true; root.add(catcher);
 }
-function buildObjectScene(d, renderer) {
+function buildObjectScene(d, renderer, opt = {}) {
   const scene = new THREE.Scene(), root = new THREE.Group(), inner = new THREE.Group();
   scene.add(root); root.add(inner);
-  const glb = d.kind === "model" && !!MODELS3D[d.model];
+  const def = d.kind === "model" ? MODELS3D[d.model] : null, glb = !!def;
   const item = glb ? makeModel(d) : makeObject(d); inner.add(item.obj);
   if (glb) addStudioLight(scene, root, renderer);
+  // far away, a real-size object is a speck: a light pillar and a bigger label say where it is
+  const pillar = new THREE.Group(); pillar.add(seg(V(0, 0, 0), V(0, 7, 0), 0xFFB020, 1), circle(.5, 0xFFB020, 1)); pillar.visible = false; root.add(pillar);
+  const w0 = item.label.scale.x, y0 = item.label.position.y;
+  const game = def?.game === "cannon" && !window.__thumb ? cannonGame(d, scene, root, item, opt) : null;
   const camV = new THREE.Vector3(), rootV = new THREE.Vector3();
-  let spawnT = null, lastLabel = -1;
+  let spawnT = null, lastLabel = -1, lastT = null;
   return {
-    scene, root,
-    spawn(t) { spawnT = t; },
+    scene, root, game,
+    spawn(t) { spawnT = t; game?.arm(t); },
     update(t, cam) {
+      const dt = lastT == null ? 0 : Math.min(t - lastT, .1); lastT = t;
       if (spawnT != null) { const k = clamp((t - spawnT) / .5, 0, 1), e = 1 - Math.pow(1 - k, 3); inner.scale.setScalar(.7 + .3 * e); inner.position.y = .05 * (1 - e); if (k >= 1) spawnT = null; }
       item.upd(t, cam);
-      if (cam && t - lastLabel > .25) {
-        lastLabel = t; camV.setFromMatrixPosition(cam.matrixWorld); root.getWorldPosition(rootV);
-        item.label.userData.set(d.title, (d.kind === "model" ? itemName(d) : KIND[d.kind]) + " · " + Math.hypot(camV.x - rootV.x, camV.z - rootV.z).toFixed(1) + " M");
+      if (cam && root.visible) {
+        camV.setFromMatrixPosition(cam.matrixWorld); root.getWorldPosition(rootV);
+        const m = Math.hypot(camV.x - rootV.x, camV.z - rootV.z), k = Math.max(1, m / 7);
+        item.label.scale.set(w0 * k, w0 * k * 150 / 640, 1); item.label.position.y = y0 + (k - 1) * .5;
+        const op = clamp((m - 12) / 25, 0, .8); pillar.visible = op > .02; pillar.children.forEach(c => c.material.opacity = op);
+        if (t - lastLabel > .25) { lastLabel = t; item.label.userData.set(d.title, (d.kind === "model" ? itemName(d) : KIND[d.kind]) + " · " + m.toFixed(m < 100 ? 1 : 0) + " M"); }
       }
+      if (game && cam) game.update(t, dt, cam);
     }
   };
 }
+
+/* ===================================================================
+   LASER CANNON: an interactive drop. It turns to follow you and fires
+   bolts that fly at a real speed, so distance buys you time. Stand still
+   and it gets accurate and fires faster. Four hits and you're out.
+   =================================================================== */
+const Sound = {
+  ctx: null,
+  unlock() { try { this.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); this.ctx.resume?.(); } catch (e) {} },
+  zap(vol) {
+    const c = this.ctx; if (!c || vol < .02) return; const t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = "sawtooth"; o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(140, t + .24);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.22 * vol, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + .26);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .3);
+  },
+  hit() {
+    const c = this.ctx; if (!c) return; const t = c.currentTime, len = .35 * c.sampleRate, buf = c.createBuffer(1, len, c.sampleRate), a = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) a[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    const src = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 900;
+    src.buffer = buf; g.gain.value = .5; src.connect(f); f.connect(g); g.connect(c.destination); src.start(t);
+  }
+};
+const glowTex = (() => {
+  let tex = null;
+  return () => {
+    if (tex) return tex;
+    const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d"), g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(.18, "rgba(255,190,170,.9)"); g.addColorStop(.45, "rgba(255,40,20,.35)"); g.addColorStop(1, "rgba(255,0,0,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128); tex = new THREE.CanvasTexture(c); return tex;
+  };
+})();
+/* A bolt is a camera-facing streak: white-hot core, red glow, and a tail that fades out
+   behind the head like a long exposure. Width grows a little with distance so far shots still read. */
+const boltMat = () => new THREE.ShaderMaterial({
+  uniforms: { uCore: { value: new THREE.Color(1, .95, .92) }, uGlow: { value: new THREE.Color(1, .07, .03) } },
+  vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+  fragmentShader: `uniform vec3 uCore; uniform vec3 uGlow; varying vec2 vUv;
+    void main(){
+      float y = abs(vUv.y - .5) * 2., x = vUv.x;
+      float along = smoothstep(0., .75, x) * (1. - smoothstep(.95, 1., x));
+      float core = exp(-y * y * 60.) * smoothstep(.2, .85, x);
+      float glow = exp(-y * y * 5.);
+      gl_FragColor = vec4((uCore * core * 1.7 + uGlow * glow) * along, clamp(core + glow * .6, 0., 1.) * along);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+});
+function hitFlash() {
+  const h = $("#arHit"), ar = $("#ar"); h.className = "on"; void h.offsetWidth; h.className = "off";
+  ar.classList.remove("shake"); void ar.offsetWidth; ar.classList.add("shake"); navigator.vibrate?.(160);
+}
+function perish(d) {
+  $("#arDead").hidden = false; $("#arHit").className = "on"; navigator.vibrate?.([200, 80, 400]);
+  setTimeout(() => { closeAR(); setUI(true); toast(`You perished. ${d.title || "The laser cannon"} hit you 4 times.`); }, 1500);
+}
+function cannonGame(d, scene, root, item, opt) {
+  const SPEED = opt.preview ? 9 : 24, RANGE = 200, HIT_R = .24, LIVES = 4;
+  const bolts = [], geo = new THREE.PlaneGeometry(1, 1), mat = boltMat();
+  const flareMat = new THREE.SpriteMaterial({ map: glowTex(), color: 0xff3020, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  let turret = null, tips = [], light = null, flash = null, armedT = null, nextT = 0, hits = 0, dead = false, still = 0, speed = 0, shot = 0, lastMsg = "";
+  const U = new THREE.Vector3(), Uprev = new THREE.Vector3(), E = new THREE.Vector3(), piv = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+  let seenU = false;
+  item.ready?.then(() => {
+    const c = item.obj.userData.cannon; if (!c) return; turret = c.turret; tips = c.tips;
+    light = new THREE.PointLight(0xff2a10, 0, 4, 2); turret.add(light); light.position.set(0, .2, .8);
+    flash = new THREE.Sprite(flareMat.clone()); flash.scale.setScalar(0); scene.add(flash);
+  });
+  const hud = () => {
+    $("#arGame").hidden = false;
+    document.querySelectorAll("#arGame i").forEach((p, i) => p.classList.toggle("hit", i < hits));
+  };
+  function say(m, warn) { if (m === lastMsg) return; lastMsg = m; const b = $("#gameMsg"); b.textContent = m; b.classList.toggle("warn", !!warn); }
+  function fire(t) {
+    const tip = tips[shot++ % tips.length]; const from = tip.getWorldPosition(new THREE.Vector3());
+    // aim at where it thinks you are, plus a miss that shrinks the longer you stand still
+    const sigma = .1 + 1.0 * Math.exp(-still / 2.2) + Math.min(speed, 3) * .15;
+    const dir = tmp.copy(E).sub(from).normalize(), side = tmp2.set(0, 1, 0).cross(dir).normalize(), up = new THREE.Vector3().crossVectors(dir, side);
+    const r = sigma * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+    const aimAt = E.clone().addScaledVector(side, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r * .7);
+    const v = aimAt.sub(from).normalize();
+    const m = new THREE.Mesh(geo, mat); m.matrixAutoUpdate = false; m.frustumCulled = false; m.renderOrder = 30;
+    const fl = new THREE.Sprite(flareMat); fl.renderOrder = 31;
+    scene.add(m, fl);
+    bolts.push({ m, fl, p: from.clone(), v, d: 0, max: from.distanceTo(E) + 25 });
+    flash.position.copy(from); flash.scale.setScalar(.7); flash.material.opacity = 1; light.intensity = 6;
+    Sound.zap(clamp(1 - from.distanceTo(U) / 120, .15, 1));
+  }
+  // closest distance between the bolt's step and your body (a short segment from your head down)
+  function hitsYou(a, b) {
+    let best = Infinity;
+    for (let i = 0; i <= 8; i++) {
+      const q = tmp.copy(a).lerp(b, i / 8), h = q.y > U.y ? U.y : q.y < U.y - .55 ? U.y - .55 : q.y;
+      best = Math.min(best, Math.hypot(q.x - U.x, q.y - h, q.z - U.z));
+    }
+    return best < HIT_R;
+  }
+  const xAx = new THREE.Vector3(), yAx = new THREE.Vector3(), zAx = new THREE.Vector3(), ctr = new THREE.Vector3(), camP = new THREE.Vector3();
+  function drawBolt(b) {
+    const toCam = camP.clone().sub(b.p), dc = toCam.length(), len = Math.min(2.2, .4 + b.d * .6), w = .12 + dc * .004;
+    xAx.copy(b.v).multiplyScalar(len); yAx.crossVectors(b.v, toCam).normalize(); zAx.crossVectors(b.v, yAx).normalize(); yAx.multiplyScalar(w);
+    ctr.copy(b.p).addScaledVector(b.v, -len / 2);
+    b.m.matrix.makeBasis(xAx, yAx, zAx).setPosition(ctr); b.m.matrixWorldNeedsUpdate = true;
+    b.fl.position.copy(b.p); b.fl.scale.setScalar(.3 + dc * .008);
+  }
+  return {
+    arm(t) { armedT = t; nextT = t + 2.2; hits = 0; dead = false; hud(); say("TRACKING"); },
+    update(t, dt, cam) {
+      camP.setFromMatrixPosition(cam.matrixWorld);
+      U.copy(camP); U.y -= .12;
+      if (!seenU) { seenU = true; Uprev.copy(U); E.copy(U).add(V(2, 0, 2)); }
+      if (dt > 0) { const v = Math.hypot(U.x - Uprev.x, U.z - Uprev.z) / dt; speed += (v - speed) * Math.min(1, dt * 4); }
+      Uprev.copy(U);
+      still = speed < .3 ? still + dt : Math.max(0, still - dt * 3);
+      // its idea of where you are lags behind you and can only move so fast, so walking makes it miss
+      const k = 1 - Math.exp(-dt / .55), step = tmp.copy(U).sub(E).multiplyScalar(k), cap = 5 * dt;
+      if (step.length() > cap) step.setLength(cap); E.add(step);
+      for (let i = bolts.length - 1; i >= 0; i--) {
+        const b = bolts[i], a = b.p.clone(); b.p.addScaledVector(b.v, SPEED * dt); b.d += SPEED * dt;
+        if (!dead && hitsYou(a, b.p)) {
+          hits++; hud(); hitFlash(); Sound.hit(); scene.remove(b.m, b.fl); bolts.splice(i, 1);
+          if (hits >= LIVES) { dead = true; say("DOWN", true); if (!opt.noDeath) perish(d); }
+          continue;
+        }
+        if (b.d > b.max) { scene.remove(b.m, b.fl); bolts.splice(i, 1); continue; }
+        drawBolt(b);
+      }
+      if (flash) { flash.material.opacity *= Math.pow(.0005, dt); flash.scale.multiplyScalar(Math.pow(.2, dt)); light.intensity *= Math.pow(.0001, dt); }
+      if (!turret || armedT == null || dead) return;
+      // turn the turret toward E, no faster than a heavy mount could
+      turret.getWorldPosition(piv); const loc = root.worldToLocal(tmp.copy(E)), lp = root.worldToLocal(tmp2.copy(piv));
+      const dx = loc.x - lp.x, dz = loc.z - lp.z, dy = loc.y - lp.y - .2;
+      const yaw = Math.atan2(dx, dz), pitch = clamp(-Math.atan2(dy, Math.hypot(dx, dz)), -.6, .35);
+      const dyaw = Math.atan2(Math.sin(yaw - turret.rotation.y), Math.cos(yaw - turret.rotation.y)), maxTurn = 1.5 * dt;
+      turret.rotation.y += clamp(dyaw, -maxTurn, maxTurn); turret.rotation.x += clamp(pitch - turret.rotation.x, -maxTurn, maxTurn);
+      const range = piv.distanceTo(U);
+      if (range > RANGE) { say("OUT OF RANGE"); return; }
+      say(still > 1.2 ? "LOCKED ON" : "TRACKING", still > 1.2);
+      if (t >= nextT && Math.abs(dyaw) < rad(7)) {
+        fire(t);
+        nextT = t + (still > 1.2 ? .45 + Math.random() * .55 : 1 + Math.random() * 2.4);
+      }
+    },
+    dispose() { bolts.forEach(b => scene.remove(b.m, b.fl)); geo.dispose(); mat.dispose(); }
+  };
+}
+
+/* Where a drop is from you: GPS distance and bearing, and the ground height difference from elevation tiles. */
+async function objOrigin(d) {
+  const geo = steadyPosition(), ring = [geo, ...[0, 90, 180, 270].map(b => offset(geo, 5, b))];
+  const [es, e1] = await Promise.all([Terrain.many(ring), Terrain.elev(d)]);
+  const ok = es.filter(e => e != null).sort((a, b) => a - b), e0 = ok.length ? ok[ok.length >> 1] : null;
+  return { geo, m: dist(geo, d), brg: bearing(geo, d), dz: e0 != null && e1 != null ? e1 - e0 : 0 };
+}
+/* local x/z of a drop, given the camera's flat forward f at the moment the compass read h (radians) */
+function geoPlace(o, h, f, ox, oz) {
+  const b = rad(o.brg) - h, m = Math.max(o.m, 1.6), r = { x: -f.z, z: f.x };
+  const fc = Math.cos(b) * m, rc = Math.sin(b) * m;
+  return { x: ox + f.x * fc + r.x * rc, z: oz + f.z * fc + r.z * rc };
+}
+// near you the floor the camera sees is the truth; terrain height takes over from 5 m to 20 m out
+const objLift = o => { const k = clamp((o.m - 5) / 15, 0, 1); return clamp(o.dz, -.3 * o.m, .3 * o.m) * k * k * (3 - 2 * k); };
+const placedHint = (o, compass) => compass
+  ? `Placed where it was dropped, ${fmtDist(o.m).toLowerCase()} away, and locked.${S.sim ? "" : ` GPS is ±${Math.round(S.me.acc)} m, so tap Move it if it's off.`}`
+  : "No compass reading, so it's straight ahead at its real distance. Tap Move it to set it by hand.";
 
 /* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -1559,9 +1785,9 @@ async function openQuickLook(d) {
   catch (e) { toast("Couldn't prepare the AR file. Showing 3D preview."); startViewer(d); }
 }
 
-/* ---------- WebXR object: plane hit test + anchor ---------- */
+/* ---------- WebXR object: placed at its map position, then anchored ---------- */
 async function startXR(d) {
-  showAR(d, "xr"); hint("Aim at the ground ahead. Hold steady.");
+  showAR(d, "xr"); hint("Finding where it was dropped. Hold the phone up."); Compass.start();
   let session;
   try { session = await navigator.xr.requestSession("immersive-ar", { requiredFeatures: ["hit-test"], optionalFeatures: ["anchors", "dom-overlay", "local-floor"], domOverlay: { root: $("#ar") } }); }
   catch (e) { closeAR(); toast("Couldn't start AR: " + e.message); return; }
@@ -1574,39 +1800,45 @@ async function startXR(d) {
   let hitSource;
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
-  let lastHit = null, steadyFor = 0, prevHit = null, prevT = 0, anchor = null, placed = false, moving = false;
+  let org = null; objOrigin(d).then(o => org = o);
+  let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null;
   // Once placed, the object is locked. Taps do nothing until you press Move.
   $("#moveBtn").onclick = () => { moving = true; $("#lockVal").textContent = "TAP TO PLACE"; hint("Aim at the new spot and tap the screen."); };
   const camPos = new THREE.Vector3(), anchored = new THREE.Vector3();
-  function place(h, t) {
-    const p = h.pose.transform.position;
-    built.root.position.set(p.x, p.y, p.z); anchored.set(p.x, p.y, p.z);
-    built.root.rotation.set(0, Math.atan2(camPos.x - p.x, camPos.z - p.z), 0);
-    built.root.visible = true; built.spawn(t); placed = true; reticle.visible = false;
+  function lock(pos, yaw, t, makeAnchor) {
+    built.root.position.copy(pos); anchored.copy(pos); built.root.rotation.set(0, yaw, 0);
+    if (!placed) built.spawn(t);
+    built.root.visible = true; placed = true; moving = false; reticle.visible = false;
     if (anchor?.delete) anchor.delete(); anchor = null;
-    $("#arMode").textContent = "WEBXR · TRACKED";
-    if (h.result.createAnchor) h.result.createAnchor().then(a => { anchor = a; $("#arMode").textContent = "WEBXR · ANCHORED"; }).catch(() => {});
-    moving = false; $("#arObjCtl").hidden = false; $("#lockVal").textContent = "LOCKED";
-    hint("Locked to the floor. Walk around it.");
+    $("#arMode").textContent = "WEBXR · TRACKED"; $("#arObjCtl").hidden = false; $("#lockVal").textContent = "LOCKED";
+    makeAnchor?.()?.then(a => { anchor = a; $("#arMode").textContent = "WEBXR · ANCHORED"; }).catch(() => {});
   }
-  session.addEventListener("select", () => { if (lastHit && (!placed || moving)) place(lastHit, performance.now() / 1000); });
+  session.addEventListener("select", () => {
+    if (!lastHit || !moving) return;
+    const p = lastHit.pose.transform.position, h = lastHit;
+    lock(V(p.x, p.y, p.z), Math.atan2(camPos.x - p.x, camPos.z - p.z), performance.now() / 1000, h.result.createAnchor ? () => h.result.createAnchor() : null);
+    hint("Moved and locked. Walk around it.");
+  });
   renderer.setAnimationLoop((time, frame) => {
-    const t = time / 1000, xrCam = renderer.xr.getCamera(cam);
+    const t = time / 1000, xrCam = renderer.xr.getCamera(cam); if (t0 == null) t0 = t;
     camPos.setFromMatrixPosition(xrCam.matrixWorld);
     if (frame) {
       const ref = renderer.xr.getReferenceSpace(), hits = frame.getHitTestResults(hitSource);
       if (hits.length) {
         const pose = hits[0].getPose(ref);
         if (pose && !pose.emulatedPosition) {
-          lastHit = { result: hits[0], pose };
-          reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = !placed || moving;
-          const p = pose.transform.position;
-          // auto-place only once the floor height has settled
-          if (prevHit) { const dt = Math.max(t - prevT, 1e-3), v = Math.hypot(p.x - prevHit.x, p.y - prevHit.y, p.z - prevHit.z) / dt; steadyFor = v < .35 && Math.abs(p.y - prevHit.y) < .01 ? steadyFor + dt : 0; }
-          prevHit = { x: p.x, y: p.y, z: p.z }; prevT = t;
-          if (!placed) { hint(steadyFor > .2 ? "Locking…" : "Aim at the ground ahead. Hold steady."); if (steadyFor > .9) place(lastHit, t); }
+          lastHit = { result: hits[0], pose }; reticle.matrix.fromArray(pose.transform.matrix); reticle.visible = moving;
+          const y = pose.transform.position.y; if (camPos.y - y > .5 && camPos.y - y < 2.4) floorY = floorY == null ? y : floorY * .9 + y * .1;
         }
-      } else { reticle.visible = false; steadyFor = 0; prevHit = null; if (!placed) hint("Scanning. Sweep the phone slowly over the ground."); }
+      } else reticle.visible = false;
+      // place it once: at its real bearing and distance, on your floor or the terrain out there, then never move it again
+      if (!placed && org && t - t0 > .8 && (Compass.heading != null || t - t0 > 3) && (floorY != null || t - t0 > 2.5)) {
+        const compass = Compass.heading != null, f = flatForward(xrCam.matrixWorld);
+        const q = geoPlace(compass ? org : { ...org, brg: 0 }, compass ? rad(Compass.heading) : 0, f, camPos.x, camPos.z);
+        const pos = V(q.x, (floorY ?? camPos.y - 1.45) + objLift(org), q.z), yaw = Math.atan2(camPos.x - q.x, camPos.z - q.z);
+        lock(pos, yaw, t, frame.createAnchor && window.XRRigidTransform ? () => frame.createAnchor(new XRRigidTransform({ x: pos.x, y: pos.y, z: pos.z }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }), ref) : null);
+        hint(placedHint(org, compass));
+      } else if (!placed) hint(org ? "Reading the compass and the floor…" : "Finding where it was dropped…");
       if (anchor && frame.trackedAnchors?.has(anchor)) {
         const ap = frame.getPose(anchor.anchorSpace, ref);
         if (ap) {
@@ -1619,7 +1851,7 @@ async function startXR(d) {
     built.update(t, xrCam); renderer.render(built.scene, cam);
   });
   let ended = false;
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); anchor?.delete?.(); disposeTree(built.scene); renderer.dispose(); };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); disposeTree(built.scene); renderer.dispose(); };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -1644,28 +1876,36 @@ async function openCameraFeed() {
   const v = $("#arVideo"); v.srcObject = stream; v.hidden = false; v.play().catch(() => {}); return stream;
 }
 async function startCamera(d, permP) {
-  showAR(d, "camera"); hint("Starting camera");
+  showAR(d, "camera"); hint("Starting camera"); Compass.start();
   let stream; try { stream = await openCameraFeed(); } catch (e) { return startViewer(d, "Camera blocked or unavailable. Showing 3D preview."); }
-  const perm = await permP;
+  const perm = await permP, org = await objOrigin(d);
   const rig = cameraRig(), built = buildObjectScene(d, rig.renderer); built.root.visible = false;
-  let placed = false, raf = 0; const t0 = performance.now();
-  const place = t => {
-    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.cam.quaternion); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
-    const ahead = Math.max(2.5, (MODELS3D[d.model]?.h || 1) * 1.3);
-    built.root.position.set(f.x * ahead, 0, f.z * ahead); built.root.rotation.y = Math.atan2(-f.x, -f.z); built.root.visible = true; built.spawn(t); placed = true;
+  let placed = false, raf = 0, frame = null; const t0 = performance.now();
+  // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
+  if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
+  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); };
+  const place = (t, compass) => {
+    const f = flatForward(rig.cam.matrixWorld);
+    frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
+    const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
+    built.root.position.set(q.x, objLift(org), q.z); built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
+    hint(placedHint(org, compass) + " This browser tracks turning only, so walking comes from GPS.");
   };
+  // walking: GPS moves you through the scene, smoothed, while the object stays where it was put
+  const meLocal = () => { const o = { m: dist(frame.g, S.me), brg: bearing(frame.g, S.me) }; return o.m < .3 ? { x: 0, z: 0 } : geoPlace({ ...o, m: o.m }, frame.h, frame.f, 0, 0); };
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; rig.step();
-    if (!placed && rig.hasOri()) { place(t); hint("This browser can't lock objects to the floor, so they shift as you walk. Use Chrome on Android or Safari on iPhone."); }
-    else if (!placed && performance.now() - t0 > 1500) { place(t); hint(perm === "granted" ? "No motion data. Object fixed on screen." : "Motion access declined. Object fixed on screen."); }
+    if (!placed && rig.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) place(t, Compass.heading != null);
+    else if (!placed && performance.now() - t0 > 4000) { place(t, false); hint(perm === "granted" ? "No motion data. The view can't turn with you." : "Motion access declined, so the view can't turn with you."); }
+    if (placed && S.me && !S.sim) { const q = meLocal(); rig.cam.position.x += (q.x - rig.cam.position.x) * .04; rig.cam.position.z += (q.z - rig.cam.position.z) * .04; }
     built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; disposeTree(built.scene); };
+  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false; };
 }
 
 /* ---------- 3D preview with orbit ---------- */
-function orbitRig(center, R0) {
+function orbitRig(center, R0, noSpin) {
   const renderer = makeRenderer(), cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .02, 500);
   let yaw = .6, pitch = .42, R = R0, drag = null, pinch = null; const pts = new Map();
   const el = renderer.domElement; el.style.touchAction = "none";
@@ -1680,7 +1920,7 @@ function orbitRig(center, R0) {
   el.addEventListener("wheel", e => { R = clamp(R * (1 + e.deltaY * .001), R0 * .3, R0 * 3); e.preventDefault(); }, { passive: false });
   const onResize = () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
   addEventListener("resize", onResize);
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduce = noSpin || matchMedia("(prefers-reduced-motion: reduce)").matches;
   return {
     renderer, cam,
     step() { if (!drag && !reduce) yaw += .0012; cam.position.set(center.x + Math.sin(yaw) * Math.cos(pitch) * R, center.y + Math.sin(pitch) * R, center.z + Math.cos(yaw) * Math.cos(pitch) * R); cam.lookAt(center); },
@@ -1692,11 +1932,13 @@ function startViewer(d, note) {
   if (AR.stop) { const s = AR.stop; AR.stop = null; s(); }
   $("#arStage").innerHTML = ""; $("#arVideo").hidden = true; showAR(d, "viewer"); hint(note || "Drag to orbit. Pinch or scroll to zoom.");
   const h = d.kind === "model" && MODELS3D[d.model] ? (MODELS3D[d.model].h || MODELS3D[d.model].size * .5) : 1.6;
-  const rig = orbitRig(V(0, h * .45, 0), window.__thumb ? .35 + h * 1.75 : 1.4 + h * 1.9);
-  const built = buildObjectScene(d, rig.renderer); if (!window.__thumb) { built.scene.background = lc(cssVar("--scene-bg")); built.scene.add(gridFloor(8, 16)); }
+  const game = !!MODELS3D[d.model]?.game && !window.__thumb;
+  const rig = orbitRig(V(0, h * .45, 0), window.__thumb ? .35 + h * (MODELS3D[d.model]?.game ? 2.5 : 1.75) : game ? 6 : 1.4 + h * 1.9, game);
+  const built = buildObjectScene(d, rig.renderer, { preview: true });
+  if (game) hint("Laser cannon. Keep dragging to dodge. Hold still and it locks on."); if (!window.__thumb) { built.scene.background = lc(cssVar("--scene-bg")); built.scene.add(gridFloor(8, 16)); }
   built.spawn(performance.now() / 1000);
   let raf = 0; const loop = () => { raf = requestAnimationFrame(loop); rig.step(); built.update(performance.now() / 1000, rig.cam); rig.renderer.render(built.scene, rig.cam); }; loop();
-  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); disposeTree(built.scene); };
+  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); built.game?.dispose(); disposeTree(built.scene); };
 }
 
 /* ===================================================================
@@ -1757,23 +1999,53 @@ function surroundMsg(dt) {
 }
 /* rings now, outlines when the data lands, and a status line either way */
 function loadSurroundings(rig, obs, scan, isEnded) {
-  const base = { radius: 220, obstacles: obs, beacons: scan, rings: scan };
-  if (scan) rig.setExtras(xrayLayer({}, base));
+  const base = { radius: 220, obstacles: obs, beacons: scan, rings: scan, center: S.me };
+  rig.setExtras(xrayLayer({}, base));
   if (!S.me) return;
   const slow = setTimeout(() => { if (!isEnded() && scan) hint("Loading building outlines and paths… map servers can take 20 seconds."); }, 2500);
   Surround.get(S.me).then(dt => {
     clearTimeout(slow); if (isEnded()) return;
-    if (dt.buildings.length || dt.ways.length || scan) rig.setExtras(xrayLayer(dt, base));
+    rig.setExtras(xrayLayer(dt, base)); rig.surround = dt;
     rig.status = surroundMsg(dt);
     if (scan) hint(rig.status + " Use ⟲ ⟳ to line them up with real walls.");
   });
 }
 function inPoly(x, z, pts) { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside; } return inside; }
 /* thin-line building shells, brighter close to you; also records footprints near you as obstacles */
+/* elevation samples on a grid around c, cached, for the x-ray terrain mesh */
+const terrainGrids = new Map();
+function terrainGrid(c, R) {
+  const key = c.lat.toFixed(4) + "," + c.lng.toFixed(4) + "," + Math.round(R);
+  if (!terrainGrids.has(key)) {
+    const step = Math.max(4, R / 24), n = Math.round(R / step), pts = [];
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) pts.push({ lat: c.lat + deg(j * step / EARTH), lng: c.lng + deg(i * step / (EARTH * Math.cos(rad(c.lat)))), r: Math.hypot(i, j) / n });
+    const job = { v: null }; job.p = Terrain.many(pts).then(es => (job.v = { pts, es, n: 2 * n + 1 })); terrainGrids.set(key, job);
+    if (terrainGrids.size > 6) terrainGrids.delete(terrainGrids.keys().next().value);
+  }
+  return terrainGrids.get(key);
+}
+/* light green wire mesh of the ground, so hills and dips read in the dark */
+function terrainMesh(tg, api, opt) {
+  const { pts, es, n } = tg, s = api.A.s, P = pts.map((p, i) => es[i] == null ? null : api.atE(p, es[i], .03 * s));
+  const light = opt.preview && document.documentElement.dataset.theme !== "dark", base = lc(light ? 0x2E9E50 : 0xA6F4B0);
+  const lp = [], lcl = [], tp = [];
+  const col = i => { const k = 1 - Math.pow(pts[i].r, 2) * .85; lcl.push(base.r * k, base.g * k, base.b * k); };
+  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+    const i = a * n + b, p = P[i]; if (!p || pts[i].r > 1) continue;
+    [[a + 1, b], [a, b + 1]].forEach(([a2, b2]) => { if (a2 >= n || b2 >= n) return; const j = a2 * n + b2, q = P[j]; if (!q || pts[j].r > 1) return; lp.push(p.x, p.y, p.z, q.x, q.y, q.z); col(i); col(j); });
+    if (a + 1 < n && b + 1 < n) { const q = P[i + n], r = P[i + 1], u = P[i + n + 1]; if (q && r && u && pts[i + n + 1].r <= 1) tp.push(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, r.x, r.y, r.z, q.x, q.y, q.z, u.x, u.y, u.z); }
+  }
+  const g = new THREE.Group(), blend = light ? THREE.NormalBlending : THREE.AdditiveBlending;
+  if (lp.length) { const lg = new THREE.BufferGeometry(); lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3)); lg.setAttribute("color", new THREE.Float32BufferAttribute(lcl, 3)); g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: light ? .6 : .55, depthWrite: false, blending: blend }))); }
+  if (tp.length) { const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.Float32BufferAttribute(tp, 3)); g.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: base, transparent: true, opacity: light ? .12 : .06, depthWrite: false, side: THREE.DoubleSide, blending: blend }))); }
+  return g;
+}
 function xrayLayer(data, opt) {
   const buildings = data.buildings || [], ways = data.ways || [];
+  const c0 = opt.center || S.me, terr = c0 ? terrainGrid(c0, opt.preview ? opt.radius : Math.min(opt.radius, 160)) : null;
   return api => {
     const g = new THREE.Group(), bands = [[], [], []], walls = [], polys = [], s = api.A.s;
+    if (terr) { const tgrp = new THREE.Group(); g.add(tgrp); const fill = v => { if (v && !tgrp.children.length) tgrp.add(terrainMesh(v, api, opt)); }; if (terr.v) fill(terr.v); else terr.p.then(fill); }
     // streets and footpaths on the ground: usually far better mapped than building heights
     const foot = [], road = [];
     for (const w of ways) {
@@ -1920,9 +2192,9 @@ function makePlanner(obs) {
 function routeRig(d, o) {
   const scene = new THREE.Scene(), root = new THREE.Group(); scene.add(root);
   const prof = (d.profile && d.profile.pts && d.profile.pts.length > 1 ? d.profile.pts : densify(d.points, 6).map(p => ({ ...p, e: null }))).map(p => ({ ...p }));
-  // smooth elevation-model noise with a 7-point moving average
-  { const raw = prof.map(p => p.e); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -3; k <= 3; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
-  const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .6, pole: 1.3 };
+  // smooth elevation-model noise with a 5-point moving average (about 25 m), light enough to keep real hills
+  { const raw = prof.map(p => p.e); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
+  const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .9, pole: 1.3, up: 0 };
   const COL = { path: 0xFFB020, live: 0x4CC9F0, stem: 0x8A919A, done: 0x5A616A };
   let path = null, glow = null, stems = null, trace = null, live = null, extra = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
   // rerouting (default on): know how far along you are; when you stray, lead you back to the nearest point ahead
@@ -1935,18 +2207,21 @@ function routeRig(d, o) {
     const fc = n * Math.cos(A.h) + e * Math.sin(A.h), rc = e * Math.cos(A.h) - n * Math.sin(A.h);
     return { x: A.ox + (A.f.x * fc + A.r.x * rc) * A.s, z: A.oz + (A.f.z * fc + A.r.z * rc) * A.s };
   }
-  // Height of the ground at p relative to where you stand. Near you, the floor the camera sees is
-  // the truth, so terrain fades in between 8 m and 35 m. Grades steeper than 15% are treated as noise.
-  function rel(p) {
-    const dz = eOf(p) - A.e0; if (o.preview) return dz;
-    const dh = dist(A.geo, p), k = clamp((dh - 8) / 27, 0, 1), cap = .15 * dh;
-    return clamp(dz, -cap, cap) * k * k * (3 - 2 * k);
-  }
-  const gy = p => A.floorY + rel(p) * A.vex * A.s;
+  // Height of the ground at p relative to the ground where you stand, from the elevation tiles.
+  // Within a few metres the floor the camera sees is the truth, so terrain eases in from 3 m to 15 m.
+  // Grades past 35% are tile noise, not hills you'd walk.
+  const relE = (e, dh) => { const dz = (e == null ? A.e0 : e) - A.e0; if (o.preview) return dz; const k = clamp((dh - 3) / 12, 0, 1); return clamp(dz, -.35 * dh, .35 * dh) * k * k * (3 - 2 * k); };
+  const rel = p => relE(eOf(p), dist(A.geo, p));
+  // Upstairs (A.up metres above the street): the line starts on your floor and eases down to the ground,
+  // over at least 10 m or three times the drop, whichever is longer.
+  const liftAt = dh => { if (!A.up) return 0; const L = Math.max(10, A.up * 3), k = clamp((dh - 2) / L, 0, 1); return A.up * (1 - k * k * (3 - 2 * k)); };
+  const ground = p => A.floorY + (rel(p) * A.vex - A.up) * A.s;
+  const gy = p => ground(p) + liftAt(dist(A.geo, p)) * A.s;
   const at = (p, lift) => { const q = xz(p); return V(q.x, gy(p) + lift, q.z); };
   const userGround = () => A.floorY + ((A.userE ?? A.e0) - A.e0) * A.vex * A.s;
   const drop = x => { if (x) { root.remove(x); disposeTree(x); } return null; };
-  const api = { A, xz, at, gy };
+  // terrain/x-ray layers sit on the real ground, never on the upstairs lift
+  const api = { A, xz, at, gy: ground, atE: (p, e, lift = 0) => { const q = xz(p); return V(q.x, A.floorY + (relE(e, dist(A.geo, p)) * A.vex - A.up) * A.s + lift, q.z); } };
   function rebuild() {
     path = drop(path); glow = drop(glow); stems = drop(stems); trace = drop(trace); live = drop(live); extra = drop(extra); wps.forEach(w => drop(w.g)); wps = [];
     if (o.extras) { extra = o.extras(api); extra.visible = XRS.xray; root.add(extra); }
@@ -1976,45 +2251,92 @@ function routeRig(d, o) {
     });
     if (!built) revealT = null; labelT = -1; built = true;
   }
-  /* Tunnel: arches every ~3 m standing on the ground along the route, joined by rails.
-     Colours live in a vertex buffer so a pulse can travel forward through them each frame. */
+  /* Tunnel: a solid arch swept along the route's ground line, so it climbs and dips with the terrain
+     and steps down from an upper floor with the line. Inside: a slow aurora, amber ribs every 3 m,
+     a pulse that runs ahead of you, twinkles and drifting motes. The floor stays see-through
+     so you can watch your footing. */
+  const TUN_V = `attribute float aS; attribute float aU; varying float vS; varying float vU; varying float vD;
+    void main(){ vS = aS; vU = aU; vec4 mv = modelViewMatrix * vec4(position, 1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }`;
+  const TUN_NOISE = `float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h21(i), h21(i + vec2(1., 0.)), f.x), mix(h21(i + vec2(0., 1.)), h21(i + vec2(1., 1.)), f.x), f.y); }`;
+  const TUN_WALL = `uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vU; varying float vD;
+    ${TUN_NOISE}
+    void main(){
+      if (vS > uReveal) discard;
+      float arc = sin(vU * 3.14159);
+      vec2 q = vec2(vS * .22 - uTime * .35, vU * 5.);
+      float n = n2(q) * .55 + n2(q * 2.1 + vec2(uTime * .15, 0.)) * .3 + n2(q * 4.3) * .15;
+      float aur = smoothstep(.42, .85, n);
+      vec3 deep = mix(vec3(.025, .012, .08), vec3(.08, .025, .2), arc);
+      vec3 tint = mix(vec3(.15, .85, 1.), vec3(.78, .28, 1.), n2(q * .4 + 7.));
+      float rib = smoothstep(.465, .5, abs(fract(vS / 3.) - .5));
+      float ph = mod(vS - uTime * 6., 24.), pulse = exp(-pow(ph - 3., 2.) * .5);
+      vec2 g = vec2(vS * 3., vU * 36.); float hs = h21(floor(g));
+      float tw = step(.975, hs) * smoothstep(.45, 0., length(fract(g) - .5)) * (.5 + .5 * sin(uTime * 4. + hs * 60.));
+      vec3 c;
+      if (gl_FrontFacing) c = deep + tint * aur * (.35 + .45 * arc) + vec3(1., .66, .16) * rib * 1.1 + vec3(.35, .85, 1.) * pulse * .7 + vec3(1.) * tw;
+      else c = deep * .7 + vec3(1., .66, .16) * rib * .55 + tint * aur * .08;
+      c *= 1. - .65 * smoothstep(uProg - 1., uProg - 6., vS);
+      c = mix(c, deep * .6, smoothstep(40., 140., vD) * .6);
+      gl_FragColor = vec4(c, 1.);
+    }`;
+  const TUN_FLOOR = `uniform float uTime; uniform float uProg; uniform float uReveal; varying float vS; varying float vU;
+    void main(){
+      if (vS > uReveal) discard;
+      float x = abs(vU - .5) * 2.;
+      float ch = fract((vS - uTime * 2.5) / 1.5 + x * .35);
+      float chev = smoothstep(0., .05, ch) * (1. - smoothstep(.08, .18, ch));
+      vec3 c = vec3(.2, .7, 1.) * chev * .55 * (1. - x * .6) + vec3(1., .66, .16) * smoothstep(.8, 1., x) * .55;
+      c *= 1. - .7 * smoothstep(uProg - 1., uProg - 6., vS);
+      gl_FragColor = vec4(c, 1.);
+    }`;
   function buildTunnel() {
-    const k = o.preview ? 4 * A.s : 1, W = 1 * k, HW = 1.5 * k, TOP = .8 * k, step = 3;
-    const shape = [[-W, 0], [-W, HW]];
-    for (let i = 1; i < 8; i++) { const a = Math.PI - i / 8 * Math.PI; shape.push([Math.cos(a) * W, HW + Math.sin(a) * TOP]); }
-    shape.push([W, HW], [W, 0]);
-    const arches = []; let nextS = 0;
-    for (let i = 0; i < prof.length; i++) {
-      if (prof[i].s < nextS && i !== prof.length - 1) continue; nextS = prof[i].s + step;
-      const a = pl[Math.max(0, i - 1)], b = pl[Math.min(pl.length - 1, i + 1)];
-      let tx = b.x - a.x, tz = b.z - a.z; const L2 = Math.hypot(tx, tz) || 1; tx /= L2; tz /= L2;
-      const rx = -tz, rz = tx, g = gy(prof[i]);
-      arches.push({ s: prof[i].s, pts: shape.map(([u, v]) => [pl[i].x + rx * u, g + v, pl[i].z + rz * u]) });
+    const k = o.preview ? 4 * A.s : 1, W = 1.1 * k, HW = 1.35 * k, TOP = .95 * k;
+    const sec = [[-W, 0], [-W, HW * .5], [-W, HW]];
+    for (let i = 1; i < 12; i++) { const a = Math.PI - i / 12 * Math.PI; sec.push([Math.cos(a) * W, HW + Math.sin(a) * TOP]); }
+    sec.push([W, HW], [W, HW * .5], [W, 0]);
+    const su = [0]; for (let i = 1; i < sec.length; i++) su.push(su[i - 1] + Math.hypot(sec[i][0] - sec[i - 1][0], sec[i][1] - sec[i - 1][1]));
+    const SU = su.at(-1), L = sec.length;
+    // spine: the route's ground line (terrain and upstairs lift included), resampled every metre
+    const spine = new THREE.CatmullRomCurve3(prof.map(p => at(p, 0)), false, "centripetal");
+    const N = clamp(Math.round(total / (o.preview ? 2 : 1)), 8, 3000), pts = spine.getSpacedPoints(N);
+    const pos = new Float32Array((N + 1) * L * 3), aS = new Float32Array((N + 1) * L), aU = new Float32Array((N + 1) * L);
+    const fp = new Float32Array((N + 1) * 6), fS = new Float32Array((N + 1) * 2), fU = new Float32Array((N + 1) * 2);
+    const rights = [];
+    for (let i = 0; i <= N; i++) {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)]; let tx = b.x - a.x, tz = b.z - a.z; const ln = Math.hypot(tx, tz) || 1; tx /= ln; tz /= ln;
+      const rx = -tz, rz = tx, P = pts[i], sv = i / N * total; rights.push([rx, rz]);
+      sec.forEach(([u, v], j) => { const n = i * L + j; pos[n * 3] = P.x + rx * u; pos[n * 3 + 1] = P.y + v; pos[n * 3 + 2] = P.z + rz * u; aS[n] = sv; aU[n] = su[j] / SU; });
+      [-1, 1].forEach((sd, j) => { const n = i * 2 + j; fp[n * 3] = P.x + rx * W * sd * .97; fp[n * 3 + 1] = P.y + .015 * k; fp[n * 3 + 2] = P.z + rz * W * sd * .97; fS[n] = sv; fU[n] = j; });
     }
-    const pos = [], sAt = [];
-    arches.forEach((ar, n) => {
-      for (let j = 1; j < ar.pts.length; j++) { pos.push(...ar.pts[j - 1], ...ar.pts[j]); sAt.push(ar.s, ar.s); }
-      const nx = arches[n + 1];
-      if (nx) [0, 1, 5, ar.pts.length - 2, ar.pts.length - 1].forEach(j => { pos.push(...ar.pts[j], ...nx.pts[j]); sAt.push(ar.s, nx.s); });
-    });
-    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
-    const lightPreview = o.preview && document.documentElement.dataset.theme !== "dark";
-    const ln = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .95, depthWrite: false, blending: lightPreview ? THREE.NormalBlending : THREE.AdditiveBlending }));
-    ln.frustumCulled = false; ln.userData.sAt = sAt; ln.userData.base = lc(lightPreview ? 0xB87000 : 0xFFB020); ln.userData.hot = lc(0x4CC9F0);
-    return ln;
+    const idx = [], fidx = [];
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < L - 1; j++) { const a = i * L + j, b = a + 1, c = a + L, d2 = c + 1; idx.push(a, c, b, b, c, d2); }
+      const a = i * 2; fidx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+    const U = { uTime: { value: 0 }, uProg: { value: 0 }, uReveal: { value: 0 }, uPx: { value: innerHeight * Math.min(devicePixelRatio || 1, 2) * k } };
+    const wg = new THREE.BufferGeometry(); wg.setAttribute("position", new THREE.BufferAttribute(pos, 3)); wg.setAttribute("aS", new THREE.BufferAttribute(aS, 1)); wg.setAttribute("aU", new THREE.BufferAttribute(aU, 1)); wg.setIndex(idx);
+    const walls = new THREE.Mesh(wg, new THREE.ShaderMaterial({ uniforms: U, vertexShader: TUN_V, fragmentShader: TUN_WALL, side: THREE.DoubleSide }));
+    const fg = new THREE.BufferGeometry(); fg.setAttribute("position", new THREE.BufferAttribute(fp, 3)); fg.setAttribute("aS", new THREE.BufferAttribute(fS, 1)); fg.setAttribute("aU", new THREE.BufferAttribute(fU, 1)); fg.setIndex(fidx);
+    const floor = new THREE.Mesh(fg, new THREE.ShaderMaterial({ uniforms: U, vertexShader: TUN_V, fragmentShader: TUN_FLOOR, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    // motes drifting inside the arch
+    const M = Math.min(3500, N * 2), mp = new Float32Array(M * 3), mS = new Float32Array(M), mR = new Float32Array(M);
+    for (let n = 0; n < M; n++) {
+      const i = Math.floor(Math.random() * (N + 1)), P = pts[i], [rx, rz] = rights[i], u = (Math.random() * 2 - 1) * W * .8, v = (.25 + Math.random() * 1.3) * k;
+      mp[n * 3] = P.x + rx * u; mp[n * 3 + 1] = P.y + v; mp[n * 3 + 2] = P.z + rz * u; mS[n] = i / N * total; mR[n] = Math.random();
+    }
+    const mg = new THREE.BufferGeometry(); mg.setAttribute("position", new THREE.BufferAttribute(mp, 3)); mg.setAttribute("aS", new THREE.BufferAttribute(mS, 1)); mg.setAttribute("aR", new THREE.BufferAttribute(mR, 1));
+    const motes = new THREE.Points(mg, new THREE.ShaderMaterial({ uniforms: U, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: `attribute float aS; attribute float aR; uniform float uTime; uniform float uReveal; uniform float uPx; varying float vA;
+        void main(){ vec3 p = position; p.y += sin(uTime * (.5 + aR) + aR * 20.) * .12; vec4 mv = modelViewMatrix * vec4(p, 1.);
+          gl_Position = projectionMatrix * mv; gl_PointSize = clamp(uPx * (.025 + aR * .035) / -mv.z, 0., 48.); vA = (aS > uReveal ? 0. : 1.) * (.45 + .55 * sin(uTime * 2. + aR * 30.)); }`,
+      fragmentShader: `varying float vA; void main(){ vec2 d = gl_PointCoord - .5; float a = exp(-dot(d, d) * 18.) * vA; gl_FragColor = vec4(vec3(.75, .92, 1.) * a, a); }` }));
+    const g = new THREE.Group(); g.add(walls, floor, motes); g.userData.U = U;
+    return g;
   }
-  function paintTunnel(t) {
+  function paintTunnel(t, e) {
     if (!tunnel) return;
-    const sAt = tunnel.userData.sAt, col = tunnel.geometry.attributes.color, b0 = tunnel.userData.base, h0 = tunnel.userData.hot, A2 = col.array;
-    for (let i = 0; i < sAt.length; i++) {
-      const dd = sAt[i] - progress;
-      let k = dd < -2 ? .12 : Math.max(.22, 1 - dd / 70);
-      const ph = ((dd - t * 7) % 21 + 21) % 21, pulse = Math.max(0, 1 - Math.abs(ph - 2) / 2) * (dd > -2 ? 1 : 0);
-      A2[i * 3] = (b0.r * (1 - pulse) + h0.r * pulse) * (k + pulse * .6);
-      A2[i * 3 + 1] = (b0.g * (1 - pulse) + h0.g * pulse) * (k + pulse * .6);
-      A2[i * 3 + 2] = (b0.b * (1 - pulse) + h0.b * pulse) * (k + pulse * .6);
-    }
-    col.needsUpdate = true;
+    const U = tunnel.userData.U; U.uTime.value = t; U.uProg.value = progress; U.uReveal.value = e >= 1 ? 1e9 : e * total;
   }
   const groundAlong = (a, b, p) => { const k = a.distanceTo(p) / Math.max(a.distanceTo(b), 1e-6); const ya = a.y - A.hover * .7, yb = b.y - A.hover; return ya + (yb - ya) * k; };
   function follow(user) {
@@ -2047,9 +2369,9 @@ function routeRig(d, o) {
       pts = curve.getSpacedPoints(Math.max(16, tgt.along.length * 2));
     } else if (plan) {
       const cum = [0]; for (let k = 1; k < plan.length; k++) cum.push(cum[k - 1] + Math.hypot(plan[k].x - plan[k - 1].x, plan[k].z - plan[k - 1].z));
-      const tot = cum.at(-1) || 1, curve = new THREE.CatmullRomCurve3(plan.map((q, k) => V(q.x, a.y + (b.y - a.y) * cum[k] / tot, q.z)), false, "centripetal", .5);
+      const tot = cum.at(-1) || 1, ez = f => f * f * (3 - 2 * f), curve = new THREE.CatmullRomCurve3(plan.map((q, k) => V(q.x, a.y + (b.y - a.y) * ez(cum[k] / tot), q.z)), false, "centripetal", .5);
       pts = curve.getSpacedPoints(Math.max(16, Math.round(tot * 2)));
-    } else for (let k = 0; k <= 16; k++) pts.push(a.clone().lerp(b, k / 16));
+    } else for (let k = 0; k <= 24; k++) { const f = k / 24, p = a.clone().lerp(b, f); p.y = a.y + (b.y - a.y) * f * f * (3 - 2 * f); pts.push(p); }
     live = new THREE.Group();
     live.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.max(32, pts.length * 2), o.tube * .7, 5, false), new THREE.MeshBasicMaterial({ color: lc(COL.live), transparent: true, opacity: .95, depthWrite: false })));
     const k = o.preview ? A.s * 6 : 1;
@@ -2063,6 +2385,7 @@ function routeRig(d, o) {
     nextPoint: () => wps[next] ? wps[next].p : null,
     setAlign(a) { Object.assign(A, a); root.position.y = 0; rebuild(); },
     setHover(v) { A.hover = v; if (built) rebuild(); },
+    setLevel(up) { if (A.up === up) return; A.up = up; if (built) rebuild(); },
     setExtras(fn) { o.extras = fn; if (built) rebuild(); },
     setTunnel() { if (built) rebuild(); },
     setXray(v) { if (extra) extra.visible = v; },
@@ -2079,7 +2402,7 @@ function routeRig(d, o) {
       stems.geometry.setDrawRange(0, Math.floor(stems.geometry.attributes.position.count * e / 2) * 2);
       trace.geometry.setDrawRange(0, Math.floor(trace.geometry.attributes.position.count * e));
       wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
-      if (tunnel) { tunnel.geometry.setDrawRange(0, Math.floor(tunnel.geometry.attributes.position.count * e / 2) * 2); paintTunnel(t); }
+      paintTunnel(t, e);
       if (user) {
         if (reroute) follow(user);
         else { const w = wps[next]; if (w) { const q = xz(w.p); if (Math.hypot(q.x - user.x, q.z - user.z) / A.s < o.reach) next = Math.min(next + 1, wps.length); } }
@@ -2100,7 +2423,22 @@ function routeRig(d, o) {
     dispose() { disposeTree(scene); }
   };
 }
-const AGL = { v: .6, cb: null, set(v) { this.v = Math.round(clamp(v, 0, 3) * 10) / 10; $("#aglVal").textContent = this.v.toFixed(1) + " M"; this.cb?.(this.v); } };
+const AGL = { v: .9, cb: null, set(v) { this.v = Math.round(clamp(v, 0, 3) * 10) / 10; $("#aglVal").textContent = this.v.toFixed(1) + " M"; this.cb?.(this.v); } };
+/* Your floor: the line and tunnel start on it and ease down to the street. GPS altitude can guess it
+   on iPhone when you're inside a mapped building; otherwise set it with − and +. */
+const Level = {
+  n: 0, manual: false, cb: null, H: 3.2,
+  set(n, auto) { this.n = clamp(n, 0, 30); if (!auto) this.manual = true; $("#lvlVal").textContent = this.n ? `FLOOR +${this.n} · ${Math.round(this.n * this.H)} M UP` : "GROUND"; this.cb?.(this.n * this.H); },
+  reset(cb) { this.manual = false; this.cb = cb; this.set(0, true); }
+};
+$("#lvlDown").addEventListener("click", () => { Level.set(Level.n - 1); hint(Level.n ? "The line starts on your floor and eases down to the street." : "Ground level."); });
+$("#lvlUp").addEventListener("click", () => { Level.set(Level.n + 1); hint("The line starts on your floor and eases down to the street."); });
+function guessLevel(dt, o) {
+  const g = S.lastGps; if (!IOS || !g || g.alt == null || !(g.altAcc <= 8) || o.e == null || !dt?.buildings?.length) return 0;
+  const kx = EARTH * Math.cos(rad(o.geo.lat)), loc = p => ({ x: rad(p.lng - o.geo.lng) * kx, z: rad(p.lat - o.geo.lat) * EARTH });
+  if (!dt.buildings.some(b => inPoly(0, 0, b.pts.map(loc)))) return 0;
+  const up = g.alt - o.e - 1.3; return up > 2.6 ? clamp(Math.round(up / Level.H), 1, 30) : 0;
+}
 $("#aglDown").addEventListener("click", () => AGL.set(AGL.v - .2));
 $("#aglUp").addEventListener("click", () => AGL.set(AGL.v + .2));
 
@@ -2205,6 +2543,8 @@ async function startRouteXR(d) {
   let hitSource = null; try { const v = await session.requestReferenceSpace("viewer"); hitSource = await session.requestHitTestSource({ space: v }); } catch (e) {}
   let origin = await routeOrigin(d), aligned = false, t0 = null, floorY = null, wantAlign = true;
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
+  Level.reset(v => rig.setLevel(v));
+  if (!scan && S.me) Surround.get(S.me).then(dt => { if (ended || Level.manual) return; const n = guessLevel(dt, origin); if (n) { Level.set(n, true); hint(`Looks like you're on floor +${n}. The line starts here and eases down to the street. Fix it with − and +.`); } });
   $("#arRealign").onclick = () => { routeOrigin(d).then(o2 => { origin = o2; wantAlign = true; aligned = false; t0 = null; }); };
   const correct = courseCorrector(rig);
   renderer.setAnimationLoop((time, frame) => {
@@ -2230,7 +2570,7 @@ async function startRouteXR(d) {
     }
     renderer.render(rig.scene, cam);
   });
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); scanner?.dispose(); rig.dispose(); renderer.dispose(); AGL.cb = null; AR.setXray = AR.setTunnel = null; };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); scanner?.dispose(); rig.dispose(); renderer.dispose(); AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -2246,6 +2586,8 @@ async function startRouteCamera(d, permP) {
   loadSurroundings(rig, obs, scan, () => ended, false);
   const origin = await routeOrigin(d); let aligned = false, raf = 0, t0 = performance.now();
   AGL.cb = v => rig.setHover(v); AGL.set(AGL.v);
+  Level.reset(v => rig.setLevel(v));
+  if (!scan && S.me) Surround.get(S.me).then(dt => { if (ended || Level.manual) return; const n = guessLevel(dt, origin); if (n) { Level.set(n, true); hint(`Looks like you're on floor +${n}. The line starts here and eases down to the street. Fix it with − and +.`); } });
   const align = () => {
     const f = flatForward(cr.cam.matrixWorld), hd = headingOrFallback(d, origin.geo);
     cr.cam.position.x = 0; cr.cam.position.z = 0;
@@ -2270,7 +2612,7 @@ async function startRouteCamera(d, permP) {
     cr.renderer.render(rig.scene, cr.cam);
   };
   loop();
-  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; AR.setXray = AR.setTunnel = null; };
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); cr.stop(); rig.dispose(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
 }
 
 function startRouteViewer(d, note) {
@@ -2281,14 +2623,16 @@ function startRouteViewer(d, note) {
   const c = { lat: prof.reduce((a, p) => a + p.lat, 0) / prof.length, lng: prof.reduce((a, p) => a + p.lng, 0) / prof.length };
   const ext = scan ? 140 : Math.max(20, ...prof.map(p => dist(c, p))), es = prof.map(p => p.e).filter(e => e != null), emin = es.length ? Math.min(...es) : 0;
   const rig = routeRig(d, { tube: .012, dia: .045, label: .55, reach: 6, stemEvery: 1, preview: true, noPath: scan, onRouteChange: (on, m) => near() && routeHint(on, m) });
-  if (scan) rig.setExtras(xrayLayer({}, { radius: ext * 1.6, preview: true, beacons: true, rings: true }));
+  rig.setExtras(xrayLayer({}, { radius: ext * 1.6, preview: true, beacons: scan, rings: scan, center: c }));
   Surround.get(c, Math.round(Math.min(320, ext * 1.6))).then(dt => {
     if (ended) return;
-    if (dt.buildings.length || dt.ways.length || scan) rig.setExtras(xrayLayer(dt, { radius: ext * 1.6, preview: true, beacons: scan, rings: scan }));
+    rig.setExtras(xrayLayer(dt, { radius: ext * 1.6, preview: true, beacons: scan, rings: scan, center: c }));
     if (scan) hint(surroundMsg(dt) + " Drag to orbit.");
   });
   rig.setAlign({ geo: c, h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: emin, userE: prof[0].e ?? emin, s: 2.2 / ext, vex: 1.5, hover: AGL.v * .12, pole: .32 });
   rig.scene.background = lc(cssVar("--scene-bg")); rig.scene.add(gridFloor(5, 20));
+  // no profile (the surroundings scan): take the ground height from the tiles so the terrain sits on the grid
+  if (!es.length) Terrain.elev(c).then(e => { if (!ended && e != null) rig.setAlign({ e0: e, userE: e }); });
   const me = new THREE.Group(); me.add(circle(.05, 0x4CC9F0, 1, 24), seg(V(0, 0, 0), V(0, .25, 0), 0x4CC9F0, .8)); me.visible = false; rig.scene.add(me);
   const orbit = orbitRig(V(0, .15, 0), 4.2);
   const near = () => S.me && dist(S.me, c) < ext * 3;
@@ -2305,7 +2649,7 @@ function startRouteViewer(d, note) {
   };
   loop();
   AR.setXray = v => rig.setXray(v); AR.setTunnel = () => rig.setTunnel();
-  AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; AR.setXray = AR.setTunnel = null; };
+  AR.stop = () => { ended = true; cancelAnimationFrame(raf); orbit.stop(); rig.dispose(); AGL.cb = null; Level.cb = null; AR.setXray = AR.setTunnel = null; };
 }
 function openScan() {
   if (!S.me) return toast("Waiting for your location.");
