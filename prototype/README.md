@@ -20,7 +20,7 @@ One HTML file. No build step, no backend, no keys.
 
 ## What's in it
 
-- AR, next to Drop, opens the AR view of everything around you. Undo sits at the top of the tool rail when there's something to undo.
+- AR, next to Drop, opens the AR view of everything on the map around you: objects and messages within 300 m, and every route within 600 m as a line on the ground with a ring at each stop. Undo sits at the top of the tool rail when there's something to undo.
 - On iPhone, once an object appears in AR it stays locked to the ground and your view; GPS no longer moves it. The camera view measures your lens and the picture's lag while you turn (saved), so objects stop gliding against the picture. Objects appear at their map spot (GPS + compass), then GPS stops: your steps, counted by the motion sensor, carry you toward them (about 0.7 m a step). Apple AR (Quick Look) is an optional button; it holds to the floor but places the object in front of you, not at its map spot.
 - After you drop something the map stays open with the pin selected, so you can drag it to fine-tune the spot.
 - Guide people to it (objects and messages): None, Line (a glowing line on the ground to it in AR, along sidewalks when the free foot router knows them), Arrow (a floating arrow in AR that turns slowly toward it, with the distance), or Compass.

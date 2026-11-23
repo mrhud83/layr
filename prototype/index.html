@@ -2753,10 +2753,23 @@ function routeRig(d, o) {
      the moment it's built and never moves on its own; only realigning the whole scene moves it. */
   const objRoot = new THREE.Group(), objs = new Map(); root.add(objRoot);
   if (!o.preview) { scene.add(new THREE.HemisphereLight(0xffffff, 0x606060, 1.6)); const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(2, 5, 1); scene.add(sun); }
+  let routeLayer = null;
   function placeObjects() {
     if (o.preview) return;
+    // the AR view (no route of its own) shows every route on the map as a line on the ground, with a ring at each stop
+    if (routeLayer) { objRoot.remove(routeLayer); disposeTree(routeLayer); routeLayer = null; }
+    if (o.noPath) {
+      routeLayer = new THREE.Group();
+      for (const r of S.drops) {
+        if (r.kind !== "route" || Math.min(...r.points.map(q => dist(A.geo, q))) > 600) continue;
+        const pts = densify(routeBase(r), 2).filter(q => dist(A.geo, q) < 700).map(q => { const v = xz(q); return V(v.x, ground(q) + .02, v.z); });
+        if (pts.length > 1) routeLayer.add(ribbon(pts, COL.path, .32));
+        r.points.forEach(q => { const v = xz(q), c = circle(.5, COL.path, .8); c.position.set(v.x, ground(q) + .03, v.z); routeLayer.add(c); });
+      }
+      objRoot.add(routeLayer);
+    }
     for (const dd of S.drops) {
-      if (dd.kind === "route" || dist(A.geo, dd) > 150) continue;
+      if (dd.kind === "route" || dist(A.geo, dd) > 300) continue;
       let it = objs.get(dd.id);
       if (!it) {
         const item = dd.kind === "model" && MODELS3D[dd.model] ? makeModel(dd) : makeObject(dd);
