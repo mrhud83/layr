@@ -402,11 +402,40 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .strip .obj svg { width: 24px; height: 24px; margin: 12px 0 8px; }
 .strip .obj span { min-height: 26px; font-size: 10.5px; padding: 0 3px 4px; line-height: 1.1; }
 .note.tight { margin: 6px 0 0; font-size: 12px; }
+.guide-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 10px; }
+.seg.mini { display: flex; margin: 0; }
+.seg.mini button { height: 30px; padding: 0 10px; font-size: 12.5px; }
 .chips { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
 .chip { height: 32px; padding: 0 13px; border-radius: 999px; font: 600 13px/1 var(--font-ui); background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); transition: background .2s, color .2s; }
 .chip[aria-pressed="true"] { background: var(--amber-bg); color: #fff; }
 .chip[aria-pressed="true"]::before { content: "✓ "; }
 body.composing .fab-row { display: none; }
+/* Find it: compass */
+#finder { position: fixed; inset: 0; z-index: 1600; background: radial-gradient(120% 80% at 50% 40%, color-mix(in srgb, var(--amber-bg) 10%, var(--bg)), var(--bg)); color: var(--text); display: flex; flex-direction: column; }
+.f-top { display: flex; align-items: flex-start; gap: 8px; padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0; }
+.f-title { min-width: 0; }
+.f-title b { display: block; font: 650 22px/1.2 var(--font-ui); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-close { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.f-close svg { width: 18px; height: 18px; }
+.f-stage { position: relative; flex: 1; display: grid; place-items: center; }
+.f-dial, .f-needle, #fRadar { position: absolute; width: min(82vw, 380px); aspect-ratio: 1; left: 50%; top: 42%; translate: -50% -50%; }
+.f-dial { color: var(--text); }
+.f-dial .f-n { fill: var(--amber); font: 700 18px var(--font-ui); }
+.f-dial .f-c { fill: var(--muted); font: 600 15px var(--font-ui); }
+.f-needle { filter: drop-shadow(0 0 14px rgba(10, 132, 255, .45)); transition: filter .3s; }
+#finder.on-course .f-needle { filter: drop-shadow(0 0 26px rgba(80, 190, 255, .95)); }
+#fRadar { border-radius: 50%; opacity: 0; transition: opacity .3s; }
+#finder.xray #fRadar { opacity: 1; }
+#finder.xray .f-dial circle { stroke-opacity: .35; }
+.f-read { position: absolute; left: 0; right: 0; top: calc(42% + min(41vw, 190px) + 18px); text-align: center; }
+.f-read b { display: block; font: 700 46px/1 var(--font-ui); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.f-read span { display: block; margin-top: 8px; color: var(--muted); font: 500 16px/1.3 var(--font-ui); }
+.f-bar { display: flex; justify-content: center; gap: 8px; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 22px); }
+.f-bar .chip { height: 40px; padding: 0 16px; font-size: 14px; }
+#fPocket { position: fixed; inset: 0; z-index: 1700; background: #000; color: #2a3a4a; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+#fPocket svg { width: 90px; height: 90px; }
+#fPocket b { font: 700 40px/1 var(--font-ui); color: #2c4a66; }
+#fPocket span { font: 500 13px/1.5 var(--font-ui); color: #26323e; max-width: 280px; }
 .ar-btn { height: 46px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-radius: 999px; font: 600 14px/1 var(--font-ui); color: var(--text); }
 .ar-btn svg, .drop-btn svg { width: 17px; height: 17px; }
 .ar-btn:active, .drop-btn:active { transform: scale(.96); }
@@ -471,6 +500,32 @@ body.composing .fab-row { display: none; }
 </section>
 
 <div class="toast frame" id="toast" role="status" hidden><span id="toastMsg"></span><button id="toastAct" type="button" hidden></button></div>
+
+<div id="finder" hidden>
+  <div class="f-top">
+    <div class="f-title"><span class="label" id="fKind">Object</span><b id="fTitle">Drop</b></div>
+    <button class="f-close frame" id="fClose" type="button" aria-label="Close the compass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="f-stage">
+    <canvas id="fRadar" aria-hidden="true"></canvas>
+    <svg class="f-dial" id="fDial" viewBox="0 0 300 300" aria-hidden="true">
+      <circle cx="150" cy="150" r="138" fill="none" stroke="currentColor" stroke-opacity=".18" stroke-width="1"/>
+      <g id="fTicks"></g>
+      <text x="150" y="38" text-anchor="middle" class="f-n">N</text><text x="266" y="155" text-anchor="middle" class="f-c">E</text><text x="150" y="272" text-anchor="middle" class="f-c">S</text><text x="34" y="155" text-anchor="middle" class="f-c">W</text>
+    </svg>
+    <svg class="f-needle" id="fNeedle" viewBox="0 0 300 300" aria-hidden="true">
+      <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7FD3FF"/><stop offset="1" stop-color="#0A84FF"/></linearGradient></defs>
+      <path d="M150 52 L182 150 L150 134 L118 150 Z" fill="url(#fg)"/>
+    </svg>
+    <div class="f-read"><b id="fDist">--</b><span id="fSub">Finding your way</span></div>
+  </div>
+  <div class="f-bar">
+    <button class="chip" id="fXray" type="button" aria-pressed="false">X-ray</button>
+    <button class="chip" id="fPocketBtn" type="button">Pocket mode</button>
+    <button class="chip" id="fOpen" type="button" hidden>Open in AR</button>
+  </div>
+  <div id="fPocket" hidden><svg id="fPocketArrow" viewBox="0 0 100 100"><path d="M50 12 L66 60 L50 52 L34 60 Z" fill="#1c3f66"/></svg><b id="fPocketDist">--</b><span>Screen off to save battery. Directions are spoken.<br>Keep the phone unlocked; double-tap to wake.</span></div>
+</div>
 
 <div id="ar" hidden>
   <video id="arVideo" playsinline muted autoplay hidden></video>
@@ -846,6 +901,8 @@ function startGeo() {
   navigator.geolocation.watchPosition(pos => {
     clearTimeout(timer);
     S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, alt: pos.coords.altitude, altAcc: pos.coords.altitudeAccuracy };
+    if (pos.coords.speed != null) S.speed = pos.coords.speed;
+    if (pos.coords.heading != null && !isNaN(pos.coords.heading) && (pos.coords.speed || 0) > .5) S.course = pos.coords.heading;
     (S.fixes ||= []).push({ ...S.lastGps, t: Date.now() }); if (S.fixes.length > 10) S.fixes.shift();
     if (!S.sim) setMe({ ...S.lastGps });
   }, err => { clearTimeout(timer); if (!S.me) useSim(err.code === 1 ? "Location permission denied" : "Location unavailable"); },
@@ -954,8 +1011,8 @@ function renderDetail() {
     ${d.kind === "route" ? `<div class="btn-row" style="margin-bottom:8px"><button class="btn grow" data-act="reroute" type="button" aria-pressed="${d.reroute !== false}">${d.reroute !== false ? "Reroutes if you stray · tap to turn off" : "Fixed route · tap to reroute if you stray"}</button></div>` : ""}
     ${d.kind === "route" && !d.drawn ? `<div class="btn-row" style="margin-bottom:8px"><button class="btn grow" data-act="walk" type="button" aria-pressed="${d.walk !== false}">${d.walk !== false ? (d.path ? "Follows walkways · tap for straight" : "Finding walkways…") : "Straight lines · tap for walkways"}</button></div>` : ""}
     <div class="btn-row">
-      <button class="btn primary grow" data-act="open" type="button" ${inR ? "" : "disabled"}>${inR ? "Open in AR" : "Move " + fmtDist(away) + " closer"}</button>
-      ${inR ? "" : '<button class="btn" data-act="preview" type="button">Preview</button>'}
+      ${inR ? `<button class="btn primary grow" data-act="open" type="button">Open in AR</button><button class="btn" data-act="find" type="button">Find it</button>`
+        : `<button class="btn primary grow" data-act="find" type="button">Find it · ${fmtDist(m ?? 0)}</button><button class="btn" data-act="preview" type="button">Preview</button>`}
       <button class="btn icon" data-act="share" type="button" aria-label="Copy share link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M6.5 9.5 9.5 6.5M7 4l1.3-1.3a2.8 2.8 0 0 1 4 4L11 8M9 12l-1.3 1.3a2.8 2.8 0 0 1-4-4L5 8"/></svg></button>
       <button class="btn icon danger" data-act="delete" type="button" aria-label="Delete drop"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
     </div>
@@ -1009,8 +1066,8 @@ function renderCompose() {
         <p class="note" id="cStops">Aim the crosshair and add stops, or tap the map.</p>`}` : ""}
     ${d.kind !== "route" ? `<div class="chips">
         ${d.kind === "model" ? `<button type="button" class="chip" data-act="sign" aria-pressed="${!!d.signOn}">Sign</button>` : ""}
-        <button type="button" class="chip" data-act="road" aria-pressed="${!!d.road}">Path to it</button>
         <button type="button" class="chip" data-act="more" aria-pressed="${!!d.more}">Details</button></div>
+      <div class="guide-row"><span class="label">Guide people to it</span><div class="seg mini" role="group" aria-label="Guide">${[["off", "None"], ["line", "Line"], ["arrow", "Arrow"], ["compass", "Compass"]].map(([k, n]) => `<button type="button" data-act="guide" data-k="${k}" aria-pressed="${(d.guide || "off") === k}">${n}</button>`).join("")}</div></div>
       ${d.signOn && d.kind === "model" ? `<div class="field"><input id="cSign" type="text" maxlength="60" placeholder="What the sign says" value="${esc(d.signText || "")}"></div>` : ""}` : ""}
     ${d.kind === "route" || d.more ? `<div class="field"><label class="label" for="cTitle">Title</label><input id="cTitle" type="text" maxlength="60" placeholder="${d.kind === "model" ? itemName(d) : d.kind === "route" ? "Morning walk" : "A note"}" value="${esc(d.title)}"></div>
     <div class="field"><label class="label" for="cRadius">Opens within</label><div class="range"><input id="cRadius" type="range" min="10" max="200" step="5" value="${d.radius}"><span class="mono" id="cRadiusV">${d.radius} M</span></div></div>` : ""}
@@ -1225,15 +1282,16 @@ function saveDraft(at) {
   } else if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
   else loc = at || draftCenter();
   if (d.kind === "message") { if (!d.text.trim()) return toast("Write a message first."); extra.text = d.text.trim(); extra.color = d.color; }
-  if (d.kind !== "route" && d.road) extra.road = true;
+  if (d.kind !== "route" && d.guide && d.guide !== "off") extra.guide = d.guide;
   if (d.kind === "model") { extra.model = d.model; if (d.signOn && (d.signText || "").trim()) extra.sign = d.signText.trim().slice(0, 60); }
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
   const drop = { id: uid(), created: Date.now(), kind: d.kind, title, radius: d.radius, lat: loc.lat, lng: loc.lng, ...extra };
   History.push(drop.kind === "route" ? "new route" : "new drop");
   S.drops.push(drop); save(); if (drop.kind === "route") { computeProfile(drop); if (!drop.drawn) fetchWalk(drop); }
   S.draft = null; S.view = "list"; $("#cross").hidden = true; draftLayer.clearLayers(); setDrawing(false);
-  toast("Placed. Opens within " + drop.radius + " m.");
-  select(drop.id);
+  // keep the map in view so the spot can be fine-tuned: the pin stays selected and draggable
+  S.selected = drop.id; S.view = "detail"; renderDetail(); setPanel(false); renderPins();
+  toast("Placed. Drag the pin to fine-tune it.", "Details", () => setPanel(true));
 }
 
 /* ================= selection and actions ================= */
@@ -1273,7 +1331,9 @@ body.addEventListener("click", e => {
   else if (a === "obj") { S.draft.model = b.dataset.k; const rr = MODELS3D[b.dataset.k]?.radius; if (rr && S.draft.radius < rr) { S.draft.radius = rr; $("#cRadius").value = rr; $("#cRadiusV").textContent = rr + " M"; drawDraft(); } body.querySelectorAll(".obj").forEach(x => x.setAttribute("aria-pressed", x === b)); $("#cTitle").placeholder = itemName(S.draft); }
   else if (a === "lensreset") { Lens.reset(); toast("AR calibration reset. Turn and tilt slowly once in AR to measure again."); }
   else if (a === "sign") { S.draft.signOn = !S.draft.signOn; renderCompose(); if (S.draft.signOn) $("#cSign")?.focus(); }
-  else if (a === "road") { S.draft.road = !S.draft.road; b.setAttribute("aria-pressed", S.draft.road); toast(S.draft.road ? "A golden path will lead people to it in AR." : "No path."); }
+  else if (a === "guide") { S.draft.guide = b.dataset.k; b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    toast({ off: "No guide.", line: "A glowing line on the ground leads people to it in AR.", arrow: "A floating arrow points the way in AR.", compass: "A compass walks people there, AR or not." }[b.dataset.k]); }
+  else if (a === "find") { const d = byId(S.selected); if (d) Finder.open(d); }
   else if (a === "more") { S.draft.more = !S.draft.more; renderCompose(); }
   else if (a === "color") { S.draft.color = b.dataset.c; body.querySelectorAll(".swatch").forEach(x => x.setAttribute("aria-pressed", x === b)); }
   else if (a === "addwp") addWaypoint(draftCenter());
@@ -1418,7 +1478,7 @@ function sanitize(d) {
   if (!d || !KIND[d.kind] || !num(d.lat) || !num(d.lng)) return null;
   const o = { id: String(d.id || uid()).slice(0, 32), created: num(d.created) ? d.created : Date.now(), kind: d.kind, title: String(d.title || "Shared drop").slice(0, 60),
     radius: clamp(num(d.radius) ? d.radius : 30, 10, 200), lat: clamp(d.lat, -90, 90), lng: clamp(d.lng, -180, 180), shared: true };
-  if (d.road && d.kind !== "route") o.road = true;
+  if (d.kind !== "route" && ["line", "arrow", "compass"].includes(d.guide)) o.guide = d.guide;
   if (d.kind === "model") { o.model = MODELS3D[d.model] || OBJECTS[d.model] ? d.model : "marker"; if (d.sign) o.sign = String(d.sign).slice(0, 60); }
   if (d.kind === "message") { o.text = String(d.text || "").slice(0, 280); o.color = /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : COLORS[0]; }
   if (d.kind === "route") {
@@ -1999,8 +2059,9 @@ async function openQuickLook(d) {
 }
 
 /* ===================================================================
-   GOLDEN PATH: an optional brick road on the ground from you to an
-   object or message, following sidewalks when the foot router knows them.
+   GUIDES in AR: a glowing line on the ground from you to the drop
+   (along sidewalks when the foot router knows them), or a floating
+   arrow that turns slowly to point the way.
    =================================================================== */
 async function walkPath(from, to) {
   try {
@@ -2012,17 +2073,39 @@ async function walkPath(from, to) {
 }
 const BRICK_V = `attribute float aS; attribute float aV; varying float vS; varying float vV; varying float vD;
   void main(){ vS = aS; vV = aV; vec4 mv = modelViewMatrix * vec4(position, 1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }`;
+// the guide line: a steady neon blue band, bright core, soft edges, fading a little with distance
 const BRICK_F = `uniform float uW; varying float vS; varying float vV; varying float vD;
-  float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   void main(){
-    float w = (vV * .5 + .5) * uW, row = floor(w / .17);
-    vec2 b = vec2((vS + mod(row, 2.) * .16) / .32, w / .17), id = floor(b), f = fract(b);
-    float brick = smoothstep(0., .07, f.x) * smoothstep(1., .93, f.x) * smoothstep(0., .12, f.y) * smoothstep(1., .88, f.y);
-    vec3 gold = mix(vec3(.93, .68, .1), vec3(1., .85, .32), h(id)) * (.86 + .14 * h(id + 7.));
-    vec3 c = mix(vec3(.42, .3, .06), gold, brick);
-    float a = .93 * (1. - smoothstep(.88, 1., abs(vV))) * (1. - smoothstep(30., 140., vD) * .45);
-    gl_FragColor = vec4(c, a);
+    float x = abs(vV), core = 1. - smoothstep(.2, .34, x), glow = exp(-x * x * 4.) * .55 * (1. - smoothstep(.8, 1., x));
+    float a = clamp(core + glow, 0., 1.) * (1. - smoothstep(25., 140., vD) * .45);
+    gl_FragColor = vec4(mix(vec3(.18, .7, 1.), vec3(.85, .97, 1.), core * .45), a);
   }`;
+function guideArrow(scene) {
+  const g = new THREE.Group(), shape = new THREE.Shape();
+  shape.moveTo(0, .32); shape.lineTo(.2, .02); shape.lineTo(.07, .07); shape.lineTo(.07, -.2); shape.lineTo(-.07, -.2); shape.lineTo(-.07, .07); shape.lineTo(-.2, .02); shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: .04, bevelEnabled: true, bevelSize: .012, bevelThickness: .012, bevelSegments: 2 }); geo.translate(0, 0, -.02);
+  const body = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: lc(0x2EB2FF), transparent: true, opacity: .95, depthWrite: false }));
+  body.rotation.x = -Math.PI / 2 - .6; body.scale.setScalar(1.2); // tip forward and tilted down, so its face turns toward you
+  const halo = new THREE.Mesh(new THREE.CircleGeometry(.3, 48), new THREE.MeshBasicMaterial({ color: lc(0x2EB2FF), transparent: true, opacity: .07, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.rotation.x = -Math.PI / 2; halo.position.y = -.01;
+  const lbl = labelSprite(0x2EB2FF, .42); lbl.position.set(0, .42, 0);
+  g.add(halo, body, lbl); g.renderOrder = 25; body.renderOrder = 25; scene.add(g);
+  let yaw = null; const cp = new THREE.Vector3(), f = new THREE.Vector3(); let lastT = null, lastL = -1;
+  return {
+    update(cam, target, t) {
+      cp.setFromMatrixPosition(cam.matrixWorld); f.set(0, 0, -1).transformDirection(cam.matrixWorld); f.y = 0; if (f.lengthSq() < 1e-4) return; f.normalize();
+      // a couple of metres ahead of you, a little below eye level
+      g.position.set(cp.x + f.x * 1.8, cp.y - .28, cp.z + f.z * 1.8);
+      const dx = target.x - g.position.x, dz = target.z - g.position.z, m = Math.hypot(target.x - cp.x, target.z - cp.z);
+      const want = Math.atan2(-dx, -dz), dt = lastT == null ? 0 : Math.min(t - lastT, .1); lastT = t;
+      // turn slowly and steadily toward the target, never snapping
+      if (yaw == null) yaw = want; else { const dd = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)); yaw += dd * Math.min(1, dt * 2.2); }
+      g.rotation.y = yaw; g.visible = m > 2.5;
+      if (t - lastL > .3) { lastL = t; lbl.userData.set(fmtDist(m), "to go"); }
+    },
+    dispose() { scene.remove(g); geo.dispose(); }
+  };
+}
 /* frame: how map positions turn into this scene (origin geo, compass heading h, flat forward f, offset).
    start/end: your feet and the object's base in the scene; the road is bent so it meets both exactly. */
 function goldenRoad(scene) {
@@ -2042,7 +2125,7 @@ function goldenRoad(scene) {
       const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal"), len = curve.getLength();
       if (len < 2) return;
       const N = Math.max(8, Math.round(len / .4)), sp = curve.getSpacedPoints(N), from = Math.ceil(1 / (len / N)), to = N - Math.ceil(.6 / (len / N));
-      const band = sp.slice(from, Math.max(from + 2, to + 1)), HW = .45;
+      const band = sp.slice(from, Math.max(from + 2, to + 1)), HW = .3;
       const pos = new Float32Array(band.length * 6), aS = new Float32Array(band.length * 2), aV = new Float32Array(band.length * 2); let sAcc = 0;
       band.forEach((P, i) => {
         if (i) sAcc += P.distanceTo(band[i - 1]);
@@ -2074,8 +2157,9 @@ async function startXR(d) {
   let hitSource;
   // Detected planes are far steadier than feature points, so ask for planes first.
   try { hitSource = await session.requestHitTestSource({ space: viewer, entityTypes: ["plane"] }); } catch (e) { hitSource = await session.requestHitTestSource({ space: viewer }); }
-  let org = null, roadGeo = null, roadFr = null; objOrigin(d).then(o => { org = o; if (d.road) roadGeo = walkPath(o.geo, { lat: d.lat, lng: d.lng }); });
-  const road = d.road ? goldenRoad(built.scene) : null;
+  const wantLine = d.guide === "line" || d.road, wantArrow = d.guide === "arrow";
+  let org = null, roadGeo = null, roadFr = null; objOrigin(d).then(o => { org = o; if (wantLine) roadGeo = walkPath(o.geo, { lat: d.lat, lng: d.lng }); });
+  const road = wantLine ? goldenRoad(built.scene) : null, arrow = wantArrow ? guideArrow(built.scene) : null;
   let lastHit = null, anchor = null, placed = false, moving = false, floorY = null, t0 = null, ray = null, rayT = 0, pending = null;
   const floors = [];
   // Once placed, the object is locked. Taps do nothing until you press Move.
@@ -2148,10 +2232,10 @@ async function startXR(d) {
         }
       }
     }
-    built.update(t, xrCam); renderer.render(built.scene, cam);
+    built.update(t, xrCam); if (arrow && placed) arrow.update(xrCam, built.root.position, t); renderer.render(built.scene, cam);
   });
   let ended = false;
-  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); ray?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); road?.dispose(); disposeTree(built.scene); renderer.dispose(); };
+  const cleanup = () => { if (ended) return; ended = true; renderer.setAnimationLoop(null); hitSource?.cancel?.(); ray?.cancel?.(); anchor?.delete?.(); built.game?.dispose(); road?.dispose(); arrow?.dispose(); disposeTree(built.scene); renderer.dispose(); };
   session.addEventListener("end", () => { cleanup(); if (AR.stop) { AR.stop = null; closeAR(); } });
   AR.stop = () => { cleanup(); session.end().catch(() => {}); };
 }
@@ -2307,7 +2391,7 @@ async function startCamera(d, permP) {
   const perm = await permP, org = await objOrigin(d);
   let motionSpeed = null;
   const rig = cameraRig(), built = buildObjectScene(d, rig.renderer, { motion: () => motionSpeed?.() }); built.root.visible = false;
-  let placed = false, raf = 0, frame = null, road = null; const t0 = performance.now();
+  let placed = false, raf = 0, frame = null, road = null, arrow = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
   $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
@@ -2316,7 +2400,8 @@ async function startCamera(d, permP) {
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z);
-    if (d.road) { road = goldenRoad(built.scene); road.set(walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
+    if (d.guide === "arrow") arrow = guideArrow(built.scene);
+    if (d.guide === "line" || d.road) { road = goldenRoad(built.scene); road.set(walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
     hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It stays put now: walk toward it and your steps bring it closer, no GPS. Drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? "" : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
@@ -2337,10 +2422,10 @@ async function startCamera(d, permP) {
     else if (!placed && performance.now() - t0 > 4000) { place(t, false); hint(perm === "granted" ? "No motion data. The view can't turn with you." : "Motion access declined, so the view can't turn with you."); }
     // once it's on screen it stays put in the world; your steps carry you toward it, GPS doesn't
     if (placed) steps.apply(rig.cam);
-    built.update(t, rig.cam); rig.renderer.render(built.scene, rig.cam);
+    built.update(t, rig.cam); if (arrow && placed) arrow.update(rig.cam, built.root.position, t); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
-  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); road?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
+  AR.stop = () => { cancelAnimationFrame(raf); rig.stop(); stream.getTracks().forEach(x => x.stop()); $("#arVideo").srcObject = null; built.game?.dispose(); road?.dispose(); arrow?.dispose(); disposeTree(built.scene); $("#moveBtn").hidden = false;
     steps.stop(); el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); };
 }
 
@@ -3228,6 +3313,118 @@ function openScan() {
 }
 $("#arBtn").addEventListener("click", openScan);
 
+/* ===================================================================
+   FIND IT: a full-screen compass that walks you to a drop. It follows
+   sidewalks when the foot router knows them, points at the next bend,
+   and counts down the distance left. X-ray adds a heading-up sketch of
+   the buildings and paths around you. Pocket mode turns the screen
+   black and speaks the directions.
+   =================================================================== */
+const Finder = {
+  d: null, path: null, raf: 0, needle: 0, dial: 0, xray: false, pocket: false, lastSay: "", lastSayM: 0, lock: null, surround: null,
+  // heading of the top of the phone: iPhone gives it directly; Android from the absolute orientation
+  hdg: null, _onAbs: null, _onRel: null,
+  startHeading() {
+    this._onRel = e => { if (e.webkitCompassHeading != null) this.pushH(e.webkitCompassHeading + screenAngle()); };
+    this._onAbs = e => { if (e.alpha == null) return; this.pushH(360 - e.alpha + screenAngle()); };
+    addEventListener("deviceorientation", this._onRel, true); addEventListener("deviceorientationabsolute", this._onAbs, true);
+  },
+  stopHeading() { removeEventListener("deviceorientation", this._onRel, true); removeEventListener("deviceorientationabsolute", this._onAbs, true); },
+  pushH(h) { h = (h % 360 + 360) % 360; if (this.hdg == null) this.hdg = h; else { const dd = ((h - this.hdg + 540) % 360) - 180; this.hdg = (this.hdg + dd * .2 + 360) % 360; } },
+  // in a pocket the phone faces anywhere, so use the direction you're walking instead
+  heading() { if (this.pocket && S.course != null && S.speed > .6) return S.course; return this.hdg ?? S.course ?? 0; },
+  target() { const d = this.d; return d.kind === "route" ? d.points.reduce((a, p) => dist(S.me, p) < dist(S.me, a) ? p : a) : { lat: d.lat, lng: d.lng }; },
+  async plan() {
+    if (!S.me) return; const to = this.target(), from = { lat: S.me.lat, lng: S.me.lng };
+    this.path = [from, to]; this.planFrom = from;
+    const p = await walkPath(from, to); if (this.d) this.path = p;
+  },
+  // where to point now: a spot about 12 m further along the path from where you are, and what's left to walk
+  guide() {
+    const me = S.me, P = this.path; if (!me || !P) return null;
+    let bi = 0, bd = Infinity; P.forEach((p, i) => { const m = dist(me, p); if (m < bd) { bd = m; bi = i; } });
+    if (bd > 30 && dist(this.planFrom, me) > 25) this.plan(); // strayed: plan again from here
+    let left = bd, aim = P[P.length - 1];
+    for (let i = bi; i < P.length - 1; i++) left += dist(P[i], P[i + 1]);
+    let acc = 0; for (let i = bi; i < P.length - 1; i++) { acc += dist(P[i], P[i + 1]); if (acc > 12) { aim = P[i + 1]; break; } }
+    const straight = dist(me, this.target());
+    if (straight < 15) aim = this.target();
+    return { brg: bearing(me, aim), left: Math.max(straight, Math.min(left, straight * 3 + 60)), straight };
+  },
+  open(d) {
+    this.d = d; this.path = null; this.needle = 0; this.lastSay = ""; this.surround = null;
+    const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
+    if (needPerm) DeviceOrientationEvent.requestPermission().catch(() => {});
+    $("#finder").hidden = false; $("#fTitle").textContent = d.title; $("#fKind").textContent = d.kind === "model" ? itemName(d) : KIND[d.kind];
+    $("#fXray").setAttribute("aria-pressed", this.xray);
+    this.startHeading(); this.plan();
+    if (S.me) Surround.get(S.me).then(dt => { this.surround = dt; });
+    const loop = () => { this.raf = requestAnimationFrame(loop); this.frame(); }; loop();
+  },
+  close() {
+    cancelAnimationFrame(this.raf); this.stopHeading(); this.setPocket(false); $("#finder").hidden = true; this.d = null; speechSynthesis?.cancel?.();
+  },
+  say(text) { try { const u = new SpeechSynthesisUtterance(text); u.rate = 1; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {} },
+  advice(rel) { const a = Math.abs(rel); return a < 18 ? "Straight ahead" : a < 60 ? (rel > 0 ? "Bear right" : "Bear left") : a < 140 ? (rel > 0 ? "Turn right" : "Turn left") : "Turn around"; },
+  async setPocket(on) {
+    this.pocket = on; $("#fPocket").hidden = !on; document.body.classList.toggle("pocket", on);
+    if (on) {
+      try { this.lock = await navigator.wakeLock?.request("screen"); } catch (e) { this.lock = null; }
+      const g = this.guide(); this.lastSay = ""; this.say(g ? `${this.d.title}. ${fmtSpeak(g.left)}.` : "Finding your way.");
+    } else { try { await this.lock?.release(); } catch (e) {} this.lock = null; }
+  },
+  frame() {
+    const d = this.d; if (!d) return;
+    const g = S.me ? this.guide() : null, h = this.heading();
+    const rel = g ? ((g.brg - h + 540) % 360) - 180 : 0;
+    // the needle and dial ease toward their targets, so the arrow glides instead of twitching
+    this.needle += ((((rel - this.needle) + 540) % 360) - 180) * .12;
+    this.dial += ((((-h - this.dial) + 540) % 360) - 180) * .15;
+    $("#fNeedle").style.transform = `rotate(${this.needle}deg)`; $("#fDial").style.transform = `rotate(${this.dial}deg)`;
+    const on = Math.abs(rel) < 15; $("#finder").classList.toggle("on-course", on);
+    if (!g) { $("#fDist").textContent = "--"; $("#fSub").textContent = "Waiting for your location"; return; }
+    const here = g.straight <= Math.max(6, d.radius > 0 ? Math.min(d.radius, 12) : 6);
+    $("#fDist").textContent = here ? "Here" : fmtWalk(g.left);
+    $("#fSub").textContent = here ? (inRange(d) ? "You've arrived. Open it in AR." : "You've arrived.") : `${this.advice(rel)} · about ${Math.max(1, Math.round(g.left / 80))} min`;
+    $("#fOpen").hidden = !inRange(d);
+    $("#fPocketDist").textContent = here ? "Here" : fmtWalk(g.left); $("#fPocketArrow").style.transform = `rotate(${this.needle}deg)`;
+    if (this.xray) this.drawRadar(g, h);
+    if (this.pocket) {
+      const adv = here ? "here" : this.advice(rel);
+      if (here && this.lastSay !== "here") { this.lastSay = "here"; this.say(`You've arrived at ${d.title}.`); navigator.vibrate?.([80, 60, 80]); }
+      else if (!here && (adv !== this.lastSay && Math.abs(rel) > 25 || Math.abs(this.lastSayM - g.left) > 50)) { this.lastSay = adv; this.lastSayM = g.left; this.say(`${adv}. ${fmtSpeak(g.left)}.`); }
+    }
+  },
+  drawRadar(g, h) {
+    const cv = $("#fRadar"), dpr = Math.min(devicePixelRatio || 1, 2), W = cv.clientWidth, H = cv.clientHeight;
+    if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+    const R = Math.min(W, H) / 2 - 8, span = clamp(g.straight * 1.3, 40, 400), k = R / span, me = S.me, cs = Math.cos(rad(h)), sn = Math.sin(rad(h));
+    const P = p => { const n = rad(p.lat - me.lat) * EARTH, e = rad(p.lng - me.lng) * EARTH * Math.cos(rad(me.lat)); const ex = e * cs - n * sn, ny = e * sn + n * cs; return [W / 2 + ex * k, H / 2 - ny * k]; };
+    x.save(); x.beginPath(); x.arc(W / 2, H / 2, R, 0, Math.PI * 2); x.clip();
+    const dt = this.surround;
+    if (dt) {
+      x.strokeStyle = "rgba(120,220,140,.35)"; x.lineWidth = 1;
+      for (const w of dt.ways) { x.beginPath(); w.pts.forEach((p, i) => { const [a, b] = P(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke(); }
+      x.strokeStyle = "rgba(76,201,240,.55)"; x.fillStyle = "rgba(76,201,240,.08)";
+      for (const b of dt.buildings) { if (dist(me, b.pts[0]) > span * 1.5) continue; x.beginPath(); b.pts.forEach((p, i) => { const [a, c] = P(p); i ? x.lineTo(a, c) : x.moveTo(a, c); }); x.closePath(); x.fill(); x.stroke(); }
+    }
+    if (this.path) { x.strokeStyle = "#2EB2FF"; x.lineWidth = 3; x.lineCap = "round"; x.lineJoin = "round"; x.beginPath(); this.path.forEach((p, i) => { const [a, b] = P(p); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke(); }
+    const [tx, ty] = P(this.target()); x.fillStyle = "#2EB2FF"; x.beginPath(); x.arc(tx, ty, 6, 0, Math.PI * 2); x.fill();
+    x.restore();
+  }
+};
+const fmtWalk = m => m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km";
+const fmtSpeak = m => m < 1000 ? `${Math.max(5, Math.round(m / 5) * 5)} meters to go` : `${(m / 1000).toFixed(1)} kilometers to go`;
+$("#fClose").addEventListener("click", () => Finder.close());
+$("#fXray").addEventListener("click", () => { Finder.xray = !Finder.xray; $("#fXray").setAttribute("aria-pressed", Finder.xray); $("#finder").classList.toggle("xray", Finder.xray); });
+$("#fPocketBtn").addEventListener("click", () => Finder.setPocket(true));
+$("#fPocket").addEventListener("dblclick", () => Finder.setPocket(false));
+(() => { let last = 0; $("#fPocket").addEventListener("touchend", () => { const t = Date.now(); if (t - last < 350) Finder.setPocket(false); last = t; }); })();
+document.addEventListener("visibilitychange", () => { if (!document.hidden && Finder.pocket && !Finder.lock) navigator.wakeLock?.request("screen").then(l => Finder.lock = l).catch(() => {}); });
+$("#fOpen").addEventListener("click", () => { const d = Finder.d; Finder.close(); openDrop(d.id, false); });
+
+(() => { let t = ""; for (let i = 0; i < 72; i++) { const a = i * 5 * Math.PI / 180, r1 = i % 18 === 0 ? 120 : i % 2 ? 130 : 125; t += `<line x1="${150 + Math.sin(a) * r1}" y1="${150 - Math.cos(a) * r1}" x2="${150 + Math.sin(a) * 136}" y2="${150 - Math.cos(a) * 136}" stroke="currentColor" stroke-opacity="${i % 18 === 0 ? .7 : .3}" stroke-width="${i % 18 === 0 ? 2 : 1}"/>`; } $("#fTicks").innerHTML = t; })();
 /* ================= boot ================= */
 importFromHash();
 setPanel(wide());
