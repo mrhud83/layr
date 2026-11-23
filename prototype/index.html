@@ -29,16 +29,16 @@
   --text: #11151A;
   --muted: #59626C;
   --dim: #87909A;
-  --amber: #B87000;
-  --amber-bg: #F2A20C;
-  --amber-ink: #160E00;
+  --amber: #0A7CF0;
+  --amber-bg: #0A84FF;
+  --amber-ink: #FFFFFF;
   --cyan: #0A7FB0;
   --ok: #0F7A45;
   --danger: #C2342A;
   --scene-bg: #E9ECEF;
   --scene-grid: #B9C0C8;
   --scene-grid-2: #D9DDE2;
-  --font-ui: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Tight", system-ui, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: light;
 }
@@ -52,9 +52,9 @@
   --text: #E6E8EB;
   --muted: #8A919A;
   --dim: #5A616A;
-  --amber: #FFB020;
-  --amber-bg: #FFB020;
-  --amber-ink: #120C00;
+  --amber: #3AB8FF;
+  --amber-bg: #0A84FF;
+  --amber-ink: #FFFFFF;
   --cyan: #4CC9F0;
   --ok: #5BE38C;
   --danger: #FF5A4E;
@@ -267,7 +267,7 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 .pin.sel svg .fill { fill: var(--amber-bg); fill-opacity: 1; }
 .me { width: 18px; height: 18px; border: 1.5px solid var(--cyan); border-radius: 50%; display: grid; place-items: center; box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 16%, transparent); background: var(--panel-solid); }
 .me::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
-.me.sim { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 176, 32, .14); }
+.me.sim { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(58, 184, 255, .16); }
 .me.sim::after { background: var(--amber); }
 .wp { width: 22px; height: 22px; display: grid; place-items: center; background: var(--panel-solid); border: 1px solid var(--amber); color: var(--amber); font: 600 10px/1 var(--font-mono); }
 .chevron { width: 14px; height: 14px; display: block; }
@@ -330,6 +330,75 @@ h2 { font: 600 19px/1.2 var(--font-ui); letter-spacing: -.005em; margin: 6px 0 0
 #ar.shake #arStage { animation: shake .25s linear; }
 
 @media (prefers-reduced-motion: reduce) { .panel-bar .chev { transition: none; } }
+
+/* ===== Soft skin: frosted glass panels, rounded, quiet type ===== */
+:root { --glass: rgba(255, 255, 255, .62); --glass-line: rgba(0, 0, 0, .08); --shadow: 0 8px 30px rgba(0, 0, 0, .12); --r: 14px; }
+:root[data-theme="dark"] { --glass: rgba(28, 30, 34, .55); --glass-line: rgba(255, 255, 255, .1); --shadow: 0 8px 30px rgba(0, 0, 0, .35); }
+.frame { border: .5px solid var(--glass-line); background: var(--glass); border-radius: var(--r); box-shadow: var(--shadow);
+  backdrop-filter: blur(22px) saturate(180%); -webkit-backdrop-filter: blur(22px) saturate(180%); overflow: hidden; }
+.frame::before { display: none; }
+.label { font: 500 11px/1.1 var(--font-ui); letter-spacing: .01em; text-transform: none; }
+.brand { font: 650 15px/1 var(--font-ui); letter-spacing: .02em; }
+.readout .top { font: 600 11.5px/1 var(--font-ui); letter-spacing: 0; }
+.readout .dot { border-radius: 50%; }
+.rail { gap: 0; }
+.rail button { border-bottom: .5px solid var(--glass-line); }
+.rail .txt { font: 600 11px/1 var(--font-ui); letter-spacing: .02em; }
+.drop-btn, .undo-btn { border-radius: 999px; font: 600 14px/1 var(--font-ui); letter-spacing: 0; }
+.drop-btn { box-shadow: 0 6px 20px rgba(10, 132, 255, .35); border: 0; }
+.panel { border-radius: 18px 18px 0 0; border-bottom: 0; }
+@media (min-width: 820px) { .panel { border-radius: 18px; } }
+.panel-bar .sum b { font: 600 14px/1 var(--font-ui); letter-spacing: 0; }
+.panel-body { border-top: .5px solid var(--glass-line); }
+.btn { border-radius: 10px; border: .5px solid var(--glass-line); background: color-mix(in srgb, var(--text) 6%, transparent); font: 600 14px/1 var(--font-ui); letter-spacing: 0; text-transform: none; transition: transform .12s, background .2s; }
+.btn:active { transform: scale(.97); }
+.btn.primary { border: 0; }
+.back { font: 500 14px/1 var(--font-ui); letter-spacing: 0; text-transform: none; color: var(--amber); }
+.seg { border: 0; border-radius: 10px; padding: 2px; background: color-mix(in srgb, var(--text) 7%, transparent); gap: 2px; }
+.seg button { border: 0 !important; border-radius: 8px; font: 600 13px/1 var(--font-ui); letter-spacing: 0; text-transform: none; transition: background .2s, color .2s; }
+.seg button[aria-pressed="true"] { background: var(--panel-solid); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.objs { border: 0; gap: 6px; }
+.obj { border: 0; border-radius: 12px; overflow: hidden; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.obj span { font: 500 11px/1.15 var(--font-ui); letter-spacing: 0; text-transform: none; }
+.obj[aria-pressed="true"]::after { border: 2px solid var(--amber); border-radius: 12px; inset: 0; }
+.item { border-top: .5px solid var(--glass-line); }
+.item .s { font: 400 12px/1.3 var(--font-ui); letter-spacing: 0; text-transform: none; }
+.tag { border-radius: 999px; font: 600 11px/1 var(--font-ui); letter-spacing: 0; padding: 5px 9px; }
+.stats { border: 0; gap: 6px; }
+.stats div { border: 0; border-radius: 10px; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.stats dt { font: 500 11px/1 var(--font-ui); letter-spacing: 0; text-transform: none; }
+.prof-wrap, .thumb { border-radius: 12px; border: .5px solid var(--glass-line); }
+.field input[type="text"], .field textarea { border-radius: 10px; border: .5px solid var(--glass-line); }
+.msg { border-radius: 10px; }
+.toast { font: 500 14px/1.35 var(--font-ui); letter-spacing: 0; border-radius: 999px; padding: 10px 14px 10px 18px; }
+.toast button { font: 600 14px/1 var(--font-ui); letter-spacing: 0; text-transform: none; }
+.wp { border-radius: 50%; font: 600 11px/1 var(--font-ui); }
+.start-here span { border-radius: 999px; font: 600 12px/1 var(--font-ui); letter-spacing: 0; text-transform: none; }
+/* AR HUD */
+.ar-top, .ar-bottom { gap: 8px; }
+.ar-title { padding: 8px 14px; }
+.ar-close { border-radius: 50%; }
+.ar-ctl button { border-left: .5px solid var(--glass-line); font: 600 16px/1 var(--font-ui); transition: background .15s; }
+.ar-ctl button:active { background: color-mix(in srgb, var(--text) 12%, transparent); }
+.ar-ctl .val { border-left: .5px solid var(--glass-line); }
+.ar-ctl .val b { font: 600 14px/1 var(--font-ui); }
+.ar-ctl .wide { font: 600 13px/1 var(--font-ui); letter-spacing: 0; text-transform: capitalize; }
+.ar-hint { font: 500 13px/1.4 var(--font-ui); border-radius: 14px; }
+.ar-game b { font: 600 12px/1 var(--font-ui); letter-spacing: .04em; }
+.ar-game i { border-radius: 2px; }
+#ar.hud-off .ar-bottom > .ar-ctl, #ar.hud-off .ar-bottom > .ar-hint { transform: translateY(24px) scale(.98); }
+.ar-bottom > .ar-ctl, .ar-bottom > .ar-hint { transition: transform .35s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
+.hud-top, .rail, .panel, .fab-row { transition: transform .38s cubic-bezier(.2, .8, .2, 1), opacity .25s ease; }
+.panel.dragging, .show-ui.dragging { transition: none !important; }
+.drag-ghost { position: fixed; z-index: 3000; left: 0; top: 0; width: 76px; height: 76px; pointer-events: none; border-radius: 16px; overflow: hidden;
+  background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 30px rgba(0, 0, 0, .3); display: grid; place-items: center; color: var(--amber);
+  transition: transform .08s linear; will-change: transform; }
+.drag-ghost img { width: 100%; height: 100%; object-fit: cover; }
+.drag-ghost svg { width: 40px; height: 40px; }
+.drag-spot { position: fixed; z-index: 2999; left: 0; top: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid var(--amber); background: color-mix(in srgb, var(--amber) 20%, transparent); pointer-events: none; will-change: transform; }
+.drag-spot.off { opacity: 0; }
+.obj.lifted { opacity: .35; }
+.leaflet-control-attribution { border-radius: 8px 0 0 0; font: 10px var(--font-ui) !important; }
 </style>
 </head>
 <body class="tiles-map">
@@ -480,15 +549,15 @@ const MODELS3D = {
   cannon:     { name: "Laser cannon",    file: "cannon.glb",     h: 1.5, game: "cannon", radius: 150 }
 };
 const OBJECTS = {
-  marker:    { name: "Pin",  color: 0xFFB020, icon: '<path d="M13 3v16"/><path d="M13 5l4 4-4 4-4-4 4-4Z"/><ellipse cx="13" cy="21" rx="7" ry="2.2"/>' },
-  objective: { name: "Spot", color: 0xFFB020, icon: '<path d="M13 5l7 4v8l-7 4-7-4V9l7-4Z"/><path d="M13 9l3.5 2v4L13 17l-3.5-2v-4L13 9Z"/>' },
+  marker:    { name: "Pin",  color: 0x3AB8FF, icon: '<path d="M13 3v16"/><path d="M13 5l4 4-4 4-4-4 4-4Z"/><ellipse cx="13" cy="21" rx="7" ry="2.2"/>' },
+  objective: { name: "Spot", color: 0x3AB8FF, icon: '<path d="M13 5l7 4v8l-7 4-7-4V9l7-4Z"/><path d="M13 9l3.5 2v4L13 17l-3.5-2v-4L13 9Z"/>' },
   rally:     { name: "Ripple",     color: 0x4CC9F0, icon: '<ellipse cx="13" cy="19" rx="9" ry="3"/><ellipse cx="13" cy="19" rx="5" ry="1.6"/><path d="M13 19V5l6 3-6 3"/>' },
   hazard:    { name: "Caution",    color: 0xFF5A4E, icon: '<path d="M13 4 22 20H4L13 4Z"/><path d="M13 10v5M13 17.5v.5"/>' },
   sensor:    { name: "Beacon",    color: 0x4CC9F0, icon: '<circle cx="13" cy="8" r="4"/><path d="M9.5 10 5 21M16.5 10 21 21M5 21h16"/>' },
-  cache:     { name: "Gift",     color: 0xFFB020, icon: '<path d="M5 9h16v11H5z"/><path d="M8 6h10M5 13h16"/>' }
+  cache:     { name: "Gift",     color: 0x3AB8FF, icon: '<path d="M5 9h16v11H5z"/><path d="M8 6h10M5 13h16"/>' }
 };
 const itemName = d => (MODELS3D[d.model] || OBJECTS[d.model] || OBJECTS.marker).name;
-const COLORS = ["#FFB020", "#4CC9F0", "#5BE38C", "#FF5A4E", "#E6E8EB"];
+const COLORS = ["#3AB8FF", "#4CC9F0", "#5BE38C", "#FF5A4E", "#E6E8EB"];
 const KIND = { model: "Object", message: "Message", route: "Route" };
 const KIND_ICON = {
   model: '<svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M11 2.5 19.5 11 11 19.5 2.5 11 11 2.5Z"/><circle cx="11" cy="11" r="1.6" fill="currentColor" stroke="none"/></svg>',
@@ -901,7 +970,8 @@ function renderCompose() {
     ${d.kind === "model" ? `<div class="pick-head"><span class="label">3D models</span><span class="label">${Object.keys(MODELS3D).length}</span></div>
       <div class="objs models">${Object.entries(MODELS3D).map(([k, v]) => `<button type="button" class="obj m" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><img src="models/thumbs/${k}.png" alt="" loading="lazy"><span>${v.name}</span></button>`).join("")}</div>
       <div class="pick-head"><span class="label">Light markers</span><span class="label">${Object.keys(OBJECTS).length}</span></div>
-      <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>` : ""}
+      <div class="objs">${Object.entries(OBJECTS).map(([k, v]) => `<button type="button" class="obj" data-act="obj" data-k="${k}" aria-pressed="${d.model === k}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.2">${v.icon}</svg><span>${v.name}</span></button>`).join("")}</div>
+      <p class="note">Tap one and place it at the crosshair, or hold it and drag it straight onto the map.</p>` : ""}
     ${d.kind === "message" ? `<div class="field"><label class="label" for="cText">Message</label><textarea id="cText" maxlength="280" placeholder="What should someone read when they arrive?">${esc(d.text)}</textarea></div>
       <div class="field"><span class="label">Accent</span><div class="swatches">${COLORS.map(c => `<button type="button" class="swatch" data-act="color" data-c="${c}" aria-label="Accent ${c}" aria-pressed="${d.color === c}" style="background:${c}"></button>`).join("")}</div></div>` : ""}
     ${d.kind === "route" ? `<div class="seg" role="group" aria-label="How to make the route" style="grid-template-columns:repeat(2,1fr);margin-top:0">
@@ -1113,13 +1183,13 @@ function syncStops(d) {
   d.path.forEach(p => { if (p.wp != null && d.points[p.wp]) d.points[p.wp] = { lat: p.lat, lng: p.lng }; });
   d.lat = d.points[0].lat; d.lng = d.points[0].lng;
 }
-function saveDraft() {
+function saveDraft(at) {
   const d = S.draft; let loc, extra = {};
   if (d.kind === "route" && d.how === "draw") {
     if (routeLength(d.stroke) < 10) return toast("Draw a longer line on the map first.");
     const built = routeFromStroke(d.stroke); loc = built.points[0]; Object.assign(extra, built);
   } else if (d.kind === "route") { if (d.points.length < 2) return toast("Add at least two stops."); loc = d.points[0]; extra.points = d.points; }
-  else loc = draftCenter();
+  else loc = at || draftCenter();
   if (d.kind === "message") { if (!d.text.trim()) return toast("Write a message first."); extra.text = d.text.trim(); extra.color = d.color; }
   if (d.kind === "model") extra.model = d.model;
   const title = d.title.trim() || (d.kind === "model" ? itemName(d) : d.kind === "route" ? "Route" : d.text.trim().split(/\s+/).slice(0, 4).join(" "));
@@ -1213,19 +1283,69 @@ map.on("dragend", () => uiAway(false));
 $("#btnHide").addEventListener("click", () => setUI(false));
 // swipe the handle up (or tap it) to show; swipe the panel's top bar down to hide
 (() => {
-  const sw = (el, dir, fn) => {
-    let y0 = null, moved = false;
-    el.addEventListener("pointerdown", e => { y0 = e.clientY; moved = false; el.setPointerCapture(e.pointerId); });
-    el.addEventListener("pointermove", e => { if (y0 == null) return; const dy = e.clientY - y0; if (Math.abs(dy) > 8) moved = true; if (dir * dy > 36) { y0 = null; fn(); } });
-    el.addEventListener("pointerup", () => { y0 = null; });
+  // the dragged surface follows the finger; past the threshold it finishes the move, else it springs back
+  const sw = (el, dir, fn, surface) => {
+    let y0 = null, moved = false, dy = 0; const tgt = surface || el;
+    const release = commit => { tgt.classList.remove("dragging"); tgt.style.transform = ""; if (commit) fn(); };
+    el.addEventListener("pointerdown", e => { y0 = e.clientY; dy = 0; moved = false; el.setPointerCapture(e.pointerId); });
+    el.addEventListener("pointermove", e => {
+      if (y0 == null) return; dy = e.clientY - y0; if (Math.abs(dy) > 6) moved = true; if (!moved) return;
+      const d = dir * dy > 0 ? dy : dy * .25; tgt.classList.add("dragging");
+      tgt.style.transform = surface ? `translateY(${d}px)` : `translate(-50%, ${d}px)`;
+    });
+    const up = () => { if (y0 == null) return; y0 = null; release(moved && dir * dy > 50); };
+    el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
     el.addEventListener("click", e => { if (moved) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     return () => moved;
   };
   sw($("#btnShow"), -1, () => setUI(true, true));
   $("#btnShow").addEventListener("click", () => setUI(true, true));
-  sw($("#panelBar"), 1, () => setUI(false, true));
+  sw($("#panelBar"), 1, () => setUI(false, true), $("#panel"));
 })();
 addEventListener("keydown", e => { if (e.key.toLowerCase() === "h" && !/input|textarea/i.test(e.target.tagName) && $("#ar").hidden) setUI(document.body.classList.contains("ui-off")); });
+/* Drag a tile from the picker onto the map. Mouse: just drag. Touch: hold a moment, then drag, so the
+   list still scrolls. While you drag, the panel and buttons slide away; let go over the map to place it. */
+(() => {
+  let pick = null, dragEndAt = 0;
+  addEventListener("click", ev => { if (Date.now() - dragEndAt < 400) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+  const overMap = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && !!el.closest("#map") && !el.closest(".leaflet-control-container"); };
+  const place = (x, y) => { pick.ghost.style.transform = `translate(${x - 38}px, ${y - 100}px) scale(1.08)`; pick.spot.style.transform = `translate(${x}px, ${y}px)`; pick.spot.classList.toggle("off", !overMap(x, y)); };
+  function lift(x, y) {
+    if (!pick) return; pick.active = true; clearTimeout(pick.timer);
+    const g = document.createElement("div"); g.className = "drag-ghost"; const art = pick.b.querySelector("img, svg"); if (art) g.appendChild(art.cloneNode(true));
+    const sp = document.createElement("div"); sp.className = "drag-spot";
+    document.body.append(sp, g); pick.ghost = g; pick.spot = sp; pick.b.classList.add("lifted");
+    clearTimeout(awayTimer); document.body.classList.add("ui-away"); $("#cross").hidden = true; navigator.vibrate?.(12); place(x, y);
+  }
+  function end(commit, x, y) {
+    if (!pick) return; const p0 = pick; pick = null; clearTimeout(p0.timer);
+    if (!p0.active) return;
+    p0.ghost.remove(); p0.spot.remove(); p0.b.classList.remove("lifted");
+    // the tile's own click must not fire after a drag
+    dragEndAt = Date.now();
+    uiAway(false);
+    if (commit && overMap(x, y) && S.draft) {
+      const r = $("#map").getBoundingClientRect(), ll = map.containerPointToLatLng(L.point(x - r.left, y - r.top));
+      S.draft.model = p0.k; saveDraft({ lat: ll.lat, lng: ll.lng });
+    } else if (S.draft) $("#cross").hidden = false;
+  }
+  body.addEventListener("pointerdown", e => {
+    const b = e.target.closest('.obj[data-act="obj"]'); if (!b || S.view !== "compose" || S.draft?.kind !== "model") return;
+    pick = { k: b.dataset.k, b, x0: e.clientX, y0: e.clientY, id: e.pointerId, active: false, mouse: e.pointerType === "mouse" };
+    if (!pick.mouse) pick.timer = setTimeout(() => lift(pick.x0, pick.y0), 260);
+  });
+  addEventListener("pointermove", e => {
+    if (!pick || e.pointerId !== pick.id) return;
+    if (pick.active) { place(e.clientX, e.clientY); return; }
+    const d = Math.hypot(e.clientX - pick.x0, e.clientY - pick.y0);
+    if (pick.mouse && d > 6) lift(e.clientX, e.clientY); else if (!pick.mouse && d > 10) { clearTimeout(pick.timer); pick = null; }
+  });
+  addEventListener("pointerup", e => { if (pick && e.pointerId === pick.id) end(true, e.clientX, e.clientY); });
+  addEventListener("pointercancel", e => { if (pick && e.pointerId === pick.id && !pick.active) end(false); });
+  // once lifted, the finger drags the tile, not the list or the page
+  document.addEventListener("touchmove", e => { if (pick?.active) e.preventDefault(); }, { passive: false });
+  document.addEventListener("touchend", e => { if (pick?.active) { const t = e.changedTouches[0]; end(true, t.clientX, t.clientY); } });
+})();
 
 map.on("click", e => {
   if (Date.now() - (Draw.endedAt || 0) < 450) return; // the click that ends a draw or bend is not a tap
@@ -1508,7 +1628,7 @@ function makeModel(d) {
   const def = MODELS3D[d.model], g = new THREE.Group();
   const label = labelSprite(0xE6E8EB, .9); label.position.y = (def.h || 1) + .3; g.add(label);
   if (window.__thumb) label.visible = false;
-  const ph = new THREE.Group(); ph.add(circle(.3, 0xFFB020, .8), ticks(.33, 24, .04, 0xFFB020, .5)); g.add(ph); // shown while loading
+  const ph = new THREE.Group(); ph.add(circle(.3, 0x3AB8FF, .8), ticks(.33, 24, .04, 0x3AB8FF, .5)); g.add(ph); // shown while loading
   let mixer = null, lastT = null;
   const ready = loadGLB(def.file).then(gltf => {
     const m = gltf.scene; if (def.game === "cannon") g.userData.cannon = dressCannon(m);
@@ -1538,7 +1658,7 @@ function buildObjectScene(d, renderer, opt = {}) {
   const item = glb ? makeModel(d) : makeObject(d); inner.add(item.obj);
   if (glb) addStudioLight(scene, root, renderer);
   // far away, a real-size object is a speck: a light pillar and a bigger label say where it is
-  const pillar = new THREE.Group(); const top = (def?.h || 1.2) + .3; pillar.add(seg(V(0, top, 0), V(0, top + 7, 0), 0xFFB020, 1), circle(.5, 0xFFB020, 1)); pillar.visible = false; root.add(pillar);
+  const pillar = new THREE.Group(); const top = (def?.h || 1.2) + .3; pillar.add(seg(V(0, top, 0), V(0, top + 7, 0), 0x3AB8FF, 1), circle(.5, 0x3AB8FF, 1)); pillar.visible = false; root.add(pillar);
   const w0 = item.label.scale.x, y0 = item.label.position.y;
   const game = def?.game === "cannon" && !window.__thumb ? cannonGame(d, scene, root, item, opt) : null;
   const camV = new THREE.Vector3(), rootV = new THREE.Vector3();
@@ -1813,7 +1933,7 @@ async function startXR(d) {
   await renderer.xr.setSession(session);
   const built = buildObjectScene(d, renderer); built.root.visible = false;
   const cam = new THREE.PerspectiveCamera();
-  const reticle = new THREE.Group(); reticle.add(circle(.14, 0xE6E8EB, .9), ticks(.16, 4, .05, 0xFFB020, 1)); reticle.matrixAutoUpdate = false; reticle.visible = false; built.scene.add(reticle);
+  const reticle = new THREE.Group(); reticle.add(circle(.14, 0xE6E8EB, .9), ticks(.16, 4, .05, 0x3AB8FF, 1)); reticle.matrixAutoUpdate = false; reticle.visible = false; built.scene.add(reticle);
   const viewer = await session.requestReferenceSpace("viewer");
   let hitSource;
   // Detected planes are far steadier than feature points, so ask for planes first.
@@ -2138,7 +2258,7 @@ function xrayLayer(data, opt) {
         const l = labelSprite(0x4CC9F0, opt.preview ? .3 : Math.min(3.2, .5 + m * .03)); l.position.copy(api.at(offset(api.A.geo, m, deg(api.A.h) + 12), .3 * s)); l.userData.set(m + " M", "range"); g.add(l);
       });
       ["N", "E", "S", "W"].forEach((n, i) => {
-        const p = api.at(offset(api.A.geo, 25, i * 90), 1.2 * s); const l = labelSprite(n === "N" ? 0xFFB020 : 0x8A919A, opt.preview ? .28 : 1.1);
+        const p = api.at(offset(api.A.geo, 25, i * 90), 1.2 * s); const l = labelSprite(n === "N" ? 0x3AB8FF : 0x8A919A, opt.preview ? .28 : 1.1);
         l.position.copy(p); l.userData.set(n, n === "N" ? "north" : ""); g.add(l);
       });
     }
@@ -2163,9 +2283,9 @@ function xrayLayer(data, opt) {
       const base = api.at(p, 0), hgt = opt.preview ? .35 : 6;
       // the pillar starts above the object so it doesn't run through it
       const top0 = opt.preview || d.kind === "route" ? 0 : (MODELS3D[d.model]?.h || 1.2) + .3;
-      g.add(seg(base.clone().add(V(0, top0, 0)), base.clone().add(V(0, top0 + hgt, 0)), 0xFFB020, .8));
-      const ring = circle(opt.preview ? .04 : .6, 0xFFB020, .8); ring.position.copy(base); g.add(ring);
-      const l = labelSprite(0xFFB020, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += top0 + hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
+      g.add(seg(base.clone().add(V(0, top0, 0)), base.clone().add(V(0, top0 + hgt, 0)), 0x3AB8FF, .8));
+      const ring = circle(opt.preview ? .04 : .6, 0x3AB8FF, .8); ring.position.copy(base); g.add(ring);
+      const l = labelSprite(0x3AB8FF, opt.preview ? .45 : 1.6); l.position.copy(base); l.position.y += top0 + hgt + (opt.preview ? .06 : .3); l.userData.set(d.title, fmtDist(m) + " · " + KIND[d.kind]); g.add(l);
     }
     if (opt.obstacles) opt.obstacles.polys = polys;
     return g;
@@ -2178,7 +2298,7 @@ function depthScanner(scene) {
   const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("color", new THREE.BufferAttribute(col, 3)); geo.setDrawRange(0, 0);
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: .03, vertexColors: true, transparent: true, opacity: .9, depthWrite: false, blending: THREE.AdditiveBlending }));
   pts.frustumCulled = false; scene.add(pts);
-  const occ = new Map(), inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector4(), c1 = lc(0x4CC9F0), c2 = lc(0xFFB020), tmp = new THREE.Color();
+  const occ = new Map(), inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector4(), c1 = lc(0x4CC9F0), c2 = lc(0x3AB8FF), tmp = new THREE.Color();
   let n = 0, head = 0, last = -1, floorY = null, working = false;
   return {
     occ, get working() { return working; },
@@ -2288,7 +2408,7 @@ function routeRig(d, o) {
   // strip roof and tree bumps, then smooth with a 5-point moving average (about 25 m), light enough to keep real hills
   { const raw = openLine(prof.map(p => p.e), 2); prof.forEach((p, i) => { if (raw[i] == null) return; let a = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = raw[i + k]; if (v != null) { a += v; n++; } } p.e = a / n; }); }
   const A = { geo: prof[0], h: 0, f: { x: 0, z: -1 }, r: { x: 1, z: 0 }, ox: 0, oz: 0, floorY: 0, e0: prof[0].e ?? 0, userE: null, s: 1, vex: 1, hover: .9, pole: 1.3, up: 0 };
-  const COL = { path: 0xFFB020, live: 0x4CC9F0, stem: 0x8A919A, done: 0x5A616A };
+  const COL = { path: 0x2EB2FF, live: 0x2EB2FF, stem: 0x8A919A, done: 0x5A616A };
   let path = null, glow = null, stems = null, trace = null, live = null, extra = null, liveT = -1, wps = [], next = 0, revealT = null, labelT = -1, built = false;
   // rerouting (default on): know how far along you are; when you stray, lead you back to the nearest point ahead
   const reroute = d.reroute !== false;
@@ -2324,9 +2444,9 @@ function routeRig(d, o) {
     void main(){
       if (vS < uStart) discard;
       float x = abs(vV);
-      float core = 1. - smoothstep(.22, .34, x), glow = exp(-x * x * 4.) * .45 * (1. - smoothstep(.8, 1., x));
+      float core = 1. - smoothstep(.22, .34, x), glow = exp(-x * x * 4.) * .55 * (1. - smoothstep(.8, 1., x));
       float a = clamp(core + glow, 0., 1.) * (1. - smoothstep(uFar * .2, uFar, vD) * .45);
-      gl_FragColor = vec4(mix(uCol, vec3(1., .93, .8), core * .35), a);
+      gl_FragColor = vec4(mix(uCol, vec3(.85, .97, 1.), core * .45), a);
     }`;
   const shared = { uTime: { value: 0 } };
   function ribbon(pts3, color, width, s0) {
@@ -2381,6 +2501,8 @@ function routeRig(d, o) {
     const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
     stems = new THREE.LineSegments(sg, lineMat(COL.stem, .45));
     trace = new THREE.Line(new THREE.BufferGeometry().setFromPoints(gp), lineMat(COL.path, .3));
+    // one line: the glow is wrapped round the same tube; no stems or ground trace
+    stems.visible = trace.visible = false;
     root.add(glow, path, stems, trace);
     tunnel = drop(tunnel);
     if (XRS.view === "tunnel") { tunnel = buildTunnel(); root.add(tunnel); path.visible = glow.visible = stems.visible = false; }
@@ -2440,7 +2562,7 @@ function routeRig(d, o) {
       float x = abs(vU - .5) * 2.;
       float ch = fract((vS - uTime * 2.5) / 1.5 + x * .35);
       float chev = smoothstep(0., .05, ch) * (1. - smoothstep(.08, .18, ch));
-      vec3 c = vec3(.2, .7, 1.) * chev * .55 * (1. - x * .6) + vec3(1., .66, .16) * smoothstep(.8, 1., x) * .55;
+      vec3 c = vec3(.2, .7, 1.) * chev * .55 * (1. - x * .6) + vec3(.2, .7, 1.) * smoothstep(.8, 1., x) * .55;
       gl_FragColor = vec4(c, 1.);
     }`;
   function buildTunnel() {
@@ -2557,12 +2679,13 @@ function routeRig(d, o) {
       if (!built || o.noPath) return;
       if (revealT == null) revealT = t;
       // the line draws itself out from the start, then stays
-      const k = clamp((t - revealT) / 1.8, 0, 1), e = 1 - Math.pow(1 - k, 2);
+      // steady: shown in full at once, no draw-on animation
+      const k = 1, e = 1;
       const from = user && reroute && track && k >= 1 ? clamp(track.s / total, 0, 1) : 0;
       [path, glow].forEach(m => { const n = m.geometry.index.count, a0 = Math.floor(n * from / 3) * 3; m.geometry.setDrawRange(a0, Math.max(0, Math.floor(n * e / 3) * 3 - a0)); });
       stems.geometry.setDrawRange(0, Math.floor(stems.geometry.attributes.position.count * e / 2) * 2);
       trace.geometry.setDrawRange(0, Math.floor(trace.geometry.attributes.position.count * e));
-      wps.forEach(w => { w.g.visible = e >= w.frac - .001; w.dia.rotation.y = t * .9; });
+      wps.forEach(w => { w.g.visible = true; });
       paintTunnel(t, e);
       shared.uTime.value = t;
       if (band) { band.userData.U.uStart.value = user && reroute && track && k >= 1 ? track.s : -1e5; if (gmapDirty && t - drapeT > .4) { drapeT = t; gmapDirty = false; drape(band, user); } }

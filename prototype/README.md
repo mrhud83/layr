@@ -20,6 +20,7 @@ One HTML file. No build step, no backend, no keys.
 
 ## What's in it
 
+- Drag a 3D model or marker from the picker straight onto the map (on touch, hold it a moment first). The panel and buttons slide away while you drag.
 - Drag any pin to move it. Select a route to drag its numbered waypoints. Every move can be undone from the toast.
 - Routes draw as one continuous line that rises and falls with the terrain at a height you set (0.9 m by default, 0 to 3 m).
 - Your floor (− and +) tells the line you're upstairs. It starts on your floor and eases down to the street. On iPhone, GPS altitude can guess it when you're inside a mapped building.
