@@ -1664,8 +1664,19 @@ function makeObject(d) {
   const base = new THREE.Group(); base.add(circle(.32, col, .9), ticks(.36, 24, .04, col, .55), circle(.04, col, .9, 16)); g.add(base);
   const label = labelSprite(col); g.add(label);
   if (d.kind === "message") {
-    const card = new THREE.Mesh(new THREE.PlaneGeometry(1.02, .6), new THREE.MeshBasicMaterial({ map: messageTexture(d), transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-    const board = new THREE.Group(); card.position.y = 1.32; board.add(card, seg(V(0, 0, 0), V(0, 1.02, 0), col, .7)); g.add(board);
+    // Two outward-facing cards instead of a DoubleSide texture: the back of a
+    // double-sided plane displays its writing in reverse in camera AR and USDZ.
+    // A half-turn about Y keeps the rear copy upright and readable as well.
+    const msgTexture = messageTexture(d);
+    const cardMat = new THREE.MeshBasicMaterial({ map: msgTexture, transparent: true, side: THREE.FrontSide, depthWrite: false });
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(1.02, .6), cardMat);
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(1.02, .6), cardMat.clone());
+    back.rotation.y = Math.PI;
+    back.position.z = -.002; // Avoid coincident front/back geometry in USDZ.
+    const board = new THREE.Group();
+    card.position.set(0, 1.32, .002);
+    back.position.y = 1.32;
+    board.add(card, back, seg(V(0, 0, 0), V(0, 1.02, 0), col, .7)); g.add(board);
     label.visible = false;
     const tmp = new THREE.Vector3();
     upd = (t, cam) => { if (!cam) return; tmp.setFromMatrixPosition(cam.matrixWorld); board.parent.worldToLocal(tmp); const a = Math.atan2(tmp.x, tmp.z); board.rotation.y += Math.atan2(Math.sin(a - board.rotation.y), Math.cos(a - board.rotation.y)) * .2; };
@@ -2023,7 +2034,7 @@ function meshify(src) {
       if (o.isLineSegments) for (let i = 0; i + 1 < pts.length; i += 2) tube(pts[i], pts[i + 1], key);
       else for (let i = 1; i < pts.length; i++) tube(pts[i - 1], pts[i], key);
     } else if (o.isMesh) {
-      const m0 = o.material, mat = new THREE.MeshStandardMaterial({ color: m0.map ? 0xffffff : m0.color.clone(), map: m0.map || null, emissive: m0.map ? 0xffffff : m0.color.clone().multiplyScalar(.6), emissiveMap: m0.map || null, roughness: 1, metalness: 0, transparent: !!m0.transparent, opacity: m0.opacity ?? 1, side: THREE.DoubleSide });
+      const m0 = o.material, mat = new THREE.MeshStandardMaterial({ color: m0.map ? 0xffffff : m0.color.clone(), map: m0.map || null, emissive: m0.map ? 0xffffff : m0.color.clone().multiplyScalar(.6), emissiveMap: m0.map || null, roughness: 1, metalness: 0, transparent: !!m0.transparent, opacity: m0.opacity ?? 1, side: m0.side });
       const m = new THREE.Mesh(o.geometry, mat); o.matrixWorld.decompose(m.position, m.quaternion, m.scale); out.add(m);
     }
   });
