@@ -1,0 +1,28 @@
+name: WaterBalloonAR
+options:
+  bundleIdPrefix: com.layr
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  WaterBalloonAR:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        NSCameraUsageDescription: "The camera shows real-world surfaces so you can throw AR water balloons."
+        UIRequiredDeviceCapabilities:
+          - arkit
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.layr.waterballoonar
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        SUPPORTS_MACCATALYST: "NO"
