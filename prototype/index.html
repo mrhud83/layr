@@ -919,7 +919,8 @@ function startGeo() {
     S.lastGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, alt: pos.coords.altitude, altAcc: pos.coords.altitudeAccuracy };
     if (pos.coords.speed != null) S.speed = pos.coords.speed;
     if (pos.coords.heading != null && !isNaN(pos.coords.heading) && (pos.coords.speed || 0) > .5) S.course = pos.coords.heading;
-    (S.fixes ||= []).push({ ...S.lastGps, t: Date.now() }); if (S.fixes.length > 10) S.fixes.shift();
+    S.lastGps.t = Date.now();
+    (S.fixes ||= []).push({ ...S.lastGps, t: S.lastGps.t }); if (S.fixes.length > 10) S.fixes.shift();
     if (!S.sim) setMe({ ...S.lastGps });
   }, err => { clearTimeout(timer); if (!S.me) useSim(err.code === 1 ? "Location permission denied" : "Location unavailable"); },
   { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
@@ -1574,7 +1575,7 @@ function openDrop(id, force, over) {
 function showAR(d, mode) {
   $("#ar").hidden = false; $("#ar").classList.toggle("xr", mode === "xr");
   $("#arTitle").textContent = d.title;
-  $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · TURN + STEPS", viewer: "3D PREVIEW" }[mode];
+  $("#arMode").textContent = { xr: "WEBXR · TRACKING", camera: "CAMERA · GPS REFINEMENT", viewer: "3D PREVIEW" }[mode];
   const scan = d.id === "__scan";
   $("#arRouteCtl").hidden = d.kind !== "route" || scan;
   $("#arHdgCtl").hidden = d.kind !== "route" || mode === "viewer";
@@ -2011,7 +2012,7 @@ const placedHint = (o, compass, xr = true) => compass
 
 /* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const QUICKLOOK = ((() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })() || IOS) && typeof THREE.USDZExporter === "function";
+const QUICKLOOK = IOS && (() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })();
 const usdzCache = new Map();
 const keyOf = d => d.id + ":" + d.kind + ":" + (d.model || "") + ":" + (d.title || "") + ":" + (d.text || "") + ":" + (d.color || "");
 // USDZ has no lines, so thin lines become thin tubes, merged per colour to keep the file small.
@@ -2080,10 +2081,30 @@ function launchQuickLook(url) {
   const a = document.createElement("a"); a.rel = "ar"; a.href = url + "#allowsContentScaling=0";
   a.appendChild(document.createElement("img")); document.body.appendChild(a); a.click(); a.remove();
 }
-async function openQuickLook(d) {
-  toast("Opening AR. Point at the floor and the object lands on it.");
-  try { launchQuickLook(await usdzFor(d)); }
-  catch (e) { toast("Couldn't prepare the AR file. Showing 3D preview."); startViewer(d); }
+function openQuickLook(d) {
+  if (!QUICKLOOK) { toast("Apple AR requires Safari on a supported iPhone or iPad."); return; }
+  // Safari requires Quick Look navigation to happen during the original tap.
+  // Bundled USDZ files can launch synchronously; awaiting a Promise loses the gesture.
+  if (d.kind === "model" && MODELS3D[d.model] && !window.__buildUsdz) {
+    const url = new URL("models/usdz/" + d.model + ".usdz", location.href).href;
+    launchQuickLook(url);
+    return;
+  }
+  // For generated USDZ, prepare first; a second tap retains the user gesture.
+  const key = keyOf(d);
+  if (window.__readyQuickLook?.has(key)) {
+    launchQuickLook(window.__readyQuickLook.get(key));
+    return;
+  }
+  toast("Preparing Apple AR model. Tap Apple AR again when ready.");
+  usdzFor(d).then(url => {
+    (window.__readyQuickLook ||= new Map()).set(key, url);
+    toast("AR model ready. Tap Apple AR again to open.");
+  }).catch(e => {
+    console.error("USDZ preparation failed", e);
+    toast("Couldn't prepare the AR file. Showing 3D preview.");
+    startViewer(d);
+  });
 }
 
 /* ===================================================================
@@ -2409,6 +2430,76 @@ function stepTracker() {
     stop() { removeEventListener("devicemotion", onM); }
   };
 }
+/* Progressive GPS refinement for the iPhone browser camera.
+   This is geographic dead reckoning, NOT plane detection or a spatial anchor.
+   Heading is measured once at placement; subsequent camera turns are tracked
+   by device orientation. GPS corrects the virtual user's horizontal position,
+   and step estimates predict movement between accepted GPS fixes. */
+function progressiveGeoRefiner(origin, frame, rig, steps) {
+  const initial = { x: rig.cam.position.x, z: rig.cam.position.z };
+  let lastFix = 0, accepted = { ...origin.geo }, pending = null;
+  let acceptedAcc = Math.max(3, S.me?.acc || 12);
+  let lastFrame = performance.now(), lastStatus = 0;
+  const f = frame.f, right = { x: -f.z, z: f.x };
+  const toLocal = g => {
+    const m = dist(origin.geo, g), angle = rad(bearing(origin.geo, g)) - frame.h;
+    return { x: initial.x + m * (f.x * Math.cos(angle) + right.x * Math.sin(angle)),
+             z: initial.z + m * (f.z * Math.cos(angle) + right.z * Math.sin(angle)) };
+  };
+  const recentFix = () => {
+    const fix = S.sim ? null : S.fixes?.at(-1);
+    return fix && Date.now() - fix.t < 12000 && Number.isFinite(fix.acc) &&
+      fix.acc > 0 && fix.acc <= 40 && Number.isFinite(fix.lat) && Number.isFinite(fix.lng) ? fix : null;
+  };
+  return {
+    step(now = performance.now()) {
+      const dt = clamp((now - lastFrame) / 1000, 0, .1); lastFrame = now;
+      const fix = recentFix();
+      if (fix && fix.t !== lastFix) {
+        lastFix = fix.t;
+        const movement = dist(accepted, fix);
+        // Reject single GPS jumps; only accept large moves when corroborated
+        // by another fix near the candidate, or plausible elapsed movement.
+        const gate = Math.max(3, Math.min(10, fix.acc * .65 + acceptedAcc * .35));
+        if (movement > gate) {
+          if (pending && dist(pending, fix) <= Math.max(5, fix.acc * 1.1)) {
+            accepted = { lat: fix.lat, lng: fix.lng };
+            acceptedAcc = fix.acc; pending = null;
+          } else pending = { lat: fix.lat, lng: fix.lng };
+        } else {
+          pending = null;
+          // Within the uncertainty radius, damp changes rather than chase jitter.
+          const k = movement < Math.max(1.5, fix.acc * .35) ? .08 : .3;
+          accepted = { lat: accepted.lat + (fix.lat - accepted.lat) * k,
+                       lng: accepted.lng + (fix.lng - accepted.lng) * k };
+          acceptedAcc = acceptedAcc * .7 + fix.acc * .3;
+        }
+      }
+      // Between usable GPS fixes predict movement from steps; the next fix
+      // re-aligns this estimate, so steps and GPS aren't summed indefinitely.
+      steps.apply(rig.cam);
+      if (fix) {
+        const goal = toLocal(accepted);
+        const dx = goal.x - rig.cam.position.x, dz = goal.z - rig.cam.position.z;
+        const delta = Math.hypot(dx, dz);
+        const deadband = Math.max(.35, Math.min(1.2, acceptedAcc * .12));
+        if (delta > deadband && dt > 0) {
+          // Cap correction speed and reduce it when location uncertainty rises.
+          const speed = clamp(3.5 - acceptedAcc * .06, .65, 3);
+          const take = Math.min(delta - deadband, speed * dt);
+          rig.cam.position.x += dx / delta * take;
+          rig.cam.position.z += dz / delta * take;
+        }
+      }
+      if (now - lastStatus > 1600) {
+        lastStatus = now;
+        $("#lockVal").textContent = fix
+          ? "GPS REFINING · ±" + Math.round(acceptedAcc) + " M"
+          : "ESTIMATED · NO SPATIAL LOCK";
+      }
+    }
+  };
+}
 async function openCameraFeed() {
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
   const v = $("#arVideo"); v.srcObject = stream; v.hidden = false; v.play().catch(() => {}); return stream;
@@ -2419,18 +2510,19 @@ async function startCamera(d, permP) {
   const perm = await permP, org = await objOrigin(d);
   let motionSpeed = null;
   const rig = cameraRig(), built = buildObjectScene(d, rig.renderer, { motion: () => motionSpeed?.() }); built.root.visible = false;
-  let placed = false, raf = 0, frame = null, road = null, arrow = null; const t0 = performance.now();
+  let placed = false, raf = 0, frame = null, road = null, arrow = null, refiner = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
-  if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
-  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
+  if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "ESTIMATED · GPS"; }
+  $("#qlBtn").onclick = () => { openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
   const place = (t, compass) => {
     const f = flatForward(rig.cam.matrixWorld);
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
     const q = geoPlace(compass ? org : { ...org, brg: 0 }, frame.h, f, 0, 0);
     built.root.position.set(q.x, objLift(org), q.z);
+    refiner = progressiveGeoRefiner(org, frame, rig, steps);
     if (d.guide === "arrow") arrow = guideArrow(built.scene);
     if (d.guide === "line" || d.road) { road = goldenRoad(built.scene); road.set(d.direct ? Promise.resolve([org.geo, { lat: d.lat, lng: d.lng }]) : walkPath(org.geo, { lat: d.lat, lng: d.lng }), { geo: org.geo, h: compass ? frame.h : rad(org.brg), f: { x: f.x, z: f.z }, ox: 0, oz: 0 }, V(0, 0, 0), built.root.position.clone()); } built.root.rotation.y = Math.atan2(-q.x, -q.z); built.root.visible = true; built.spawn(t); placed = true;
-    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " It stays put now: walk toward it and your steps bring it closer, no GPS. Drag up or down if it floats." + (QUICKLOOK && !MODELS3D[d.model]?.game ? "" : ""));
+    hint(placedHint(org, compass, false) + (Lens.n ? "" : " Turn slowly left and right once so the view can match your camera.") + " GPS and step estimates now refine its apparent position smoothly as you approach. This is not a physical AR anchor." + (QUICKLOOK && !MODELS3D[d.model]?.game ? "" : ""));
   };
   // Turning-only tracking can't see the ground, and a degree of tilt error lifts a far object by a metre.
   // Drag up or down to move it; it follows your finger.
@@ -2441,15 +2533,15 @@ async function startCamera(d, permP) {
       built.root.position.y -= dy * perPx; $("#lockVal").textContent = "SET BY HAND"; },
     up = () => { dragY = null; };
   el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
-  // walking: GPS moves you through the scene, smoothed, while the object stays where it was put
-  // walking comes from your steps, not GPS
+  // Step motion predicts movement between GPS fixes; the refiner reconciles both.
   const steps = stepTracker(); motionSpeed = () => steps.speed();
   const loop = () => {
     raf = requestAnimationFrame(loop); const t = performance.now() / 1000; rig.step();
     if (!placed && rig.hasOri() && (Compass.heading != null || performance.now() - t0 > 3000)) place(t, Compass.heading != null);
     else if (!placed && performance.now() - t0 > 4000) { place(t, false); hint(perm === "granted" ? "No motion data. The view can't turn with you." : "Motion access declined, so the view can't turn with you."); }
-    // once it's on screen it stays put in the world; your steps carry you toward it, GPS doesn't
-    if (placed) steps.apply(rig.cam);
+    // Keep the same rendered scene: only the virtual camera moves toward the
+    // accepted geographic estimate. No mode switch, snap or fake ARKit lock.
+    if (placed) refiner?.step();
     built.update(t, rig.cam); if (arrow && placed) arrow.update(rig.cam, built.root.position, t); rig.renderer.render(built.scene, rig.cam);
   };
   loop();
@@ -3911,16 +4003,6 @@ S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.pat
 
   labBtn.addEventListener("click", openLab);
 })();
-</script>// Fix Apple AR Quick Look for remote GLB models
-  if (typeof usdzFor === "function") {
-    const _origUsdzFor = usdzFor;
-    usdzFor = function (d) {
-      if (d.kind === "model" && MODELS3D[d.model]?.file?.startsWith("http")) {
-        window.__buildUsdz = true;
-        return _origUsdzFor(d).finally(() => { window.__buildUsdz = false; });
-      }
-      return _origUsdzFor(d);
-    };
-  }
+</script>
 </body>
 </html>
