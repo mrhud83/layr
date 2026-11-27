@@ -3619,6 +3619,286 @@ S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.pat
       syncCalBtn();
     }
   })();
+</script><!-- ===== VeilXR Lab: Portal + Building-Bounce Physics + High-Detail 3D ===== -->
+<style id="veilxr-lab-css">
+  .lab-btn {
+    height: 48px; padding: 0 18px; border-radius: 999px;
+    display: flex; align-items: center; gap: 7px;
+    font: 600 14px/1 var(--font-ui); color: var(--text);
+    background: var(--vx-glass-strong, rgba(20, 24, 32, 0.75));
+    border: 1px solid var(--vx-border, rgba(255, 255, 255, 0.16));
+  }
+  .lab-btn svg { width: 16px; height: 16px; color: var(--vx-accent, #38BDF8); }
+  #vxLabCtl {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    padding: 6px; border-radius: 999px;
+  }
+  #vxLabCtl button {
+    height: 38px; padding: 0 14px; border-radius: 999px; border: 0;
+    font: 600 13px/1 var(--font-ui); color: var(--text);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    width: auto;
+  }
+  #vxLabCtl button.accent {
+    background: linear-gradient(135deg, #0A84FF, #38BDF8);
+    color: #fff;
+  }
+</style>
+
+<script id="veilxr-lab">
+(function () {
+  // 1. Allow remote CDN .glb URLs inside loadGLB() without breaking local models
+  if (typeof gltfLoader !== "undefined") {
+    const _origLoad = gltfLoader.load.bind(gltfLoader);
+    gltfLoader.load = function (url, onLoad, onProg, onErr) {
+      const clean = typeof url === "string" && url.startsWith("models/http") ? url.slice(7) : url;
+      return _origLoad(clean, onLoad, onProg, onErr);
+    };
+  }
+
+  // 2. Add two sophisticated PBR / animated models to the Drop catalog
+  if (typeof MODELS3D !== "undefined") {
+    MODELS3D.robot = {
+      name: "Sci-Fi Robot",
+      file: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
+      h: 1.35,
+      anim: "Walking"
+    };
+    MODELS3D.helmet = {
+      name: "Sci-Fi Helmet",
+      file: "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+      h: 0.45
+    };
+  }
+
+  // Clean fallback badge if a remote model has no local PNG thumbnail
+  document.addEventListener("error", e => {
+    if (e.target.tagName === "IMG" && e.target.closest(".obj")) {
+      e.target.src = "data:image/svg+xml," + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" rx="14" fill="#111827"/><path d="M40 18 60 29v22L40 62 20 51V29Z" fill="none" stroke="#38BDF8" stroke-width="2.5"/><path d="M20 29l20 11 20-11M40 40v22" fill="none" stroke="#38BDF8" stroke-width="2" opacity=".6"/></svg>'
+      );
+    }
+  }, true);
+
+  // 3. Add a "Lab" button to the main floating dock
+  const fabRow = document.getElementById("fabRow");
+  if (!fabRow) return;
+  const labBtn = document.createElement("button");
+  labBtn.id = "vxLabBtn";
+  labBtn.type = "button";
+  labBtn.className = "lab-btn frame";
+  labBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Lab';
+  fabRow.appendChild(labBtn);
+
+  // 4. Add Lab controls inside the AR HUD
+  const arBottom = document.querySelector(".ar-bottom");
+  const labCtl = document.createElement("div");
+  labCtl.id = "vxLabCtl";
+  labCtl.className = "ar-ctl frame";
+  labCtl.hidden = true;
+  labCtl.innerHTML =
+    '<button type="button" id="vxPortalBtn" class="accent">Drop Portal</button>' +
+    '<button type="button" id="vxBallBtn">Throw Ball</button>' +
+    '<button type="button" id="vxStepBtn">Step +1m</button>';
+  arBottom.insertBefore(labCtl, document.getElementById("arHint"));
+
+  // Build an occlusion-masked Walk-Through Portal (works on iPhone WebGL)
+  function createPortal() {
+    const group = new THREE.Group();
+
+    // Glowing cyan doorway frame
+    const frameMat = new THREE.MeshBasicMaterial({ color: 0x38BDF8 });
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.06, 0.08), frameMat);
+    top.position.set(0, 2.23, 0);
+    const left = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.26, 0.08), frameMat);
+    left.position.set(-0.65, 1.13, 0);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.26, 0.08), frameMat);
+    right.position.set(0.65, 1.13, 0);
+    group.add(top, left, right);
+
+    // Invisible outer cloak writes to depth buffer only, hiding the room from outside
+    const cloakMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true });
+    const W = 5.2, H = 3.6, D = 5.2;
+    const cloak = new THREE.Group();
+    const mkWall = (w, h, x, y, z, ry) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), cloakMat);
+      m.position.set(x, y, z); m.rotation.y = ry; m.renderOrder = 1; return m;
+    };
+    cloak.add(
+      mkWall(W, H, 0, H / 2, -D, Math.PI),
+      mkWall(D, H, -W / 2, H / 2, -D / 2, -Math.PI / 2),
+      mkWall(D, H, W / 2, H / 2, -D / 2, Math.PI / 2),
+      mkWall((W - 1.3) / 2, H, -(W + 1.3) / 4, H / 2, 0.01, 0),
+      mkWall((W - 1.3) / 2, H, (W + 1.3) / 4, H / 2, 0.01, 0),
+      mkWall(1.3, H - 2.2, 0, 2.2 + (H - 2.2) / 2, 0.01, 0)
+    );
+    const roofCloak = new THREE.Mesh(new THREE.PlaneGeometry(W, D), cloakMat);
+    roofCloak.rotation.x = -Math.PI / 2; roofCloak.position.set(0, H, -D / 2); roofCloak.renderOrder = 1;
+    cloak.add(roofCloak);
+    group.add(cloak);
+
+    // Interior neon world (visible only through the doorway or once you step inside)
+    const room = new THREE.Mesh(
+      new THREE.BoxGeometry(W - 0.06, H - 0.06, D - 0.06),
+      new THREE.MeshBasicMaterial({ color: 0x070B1A, side: THREE.BackSide })
+    );
+    room.position.set(0, H / 2, -D / 2);
+    room.renderOrder = 2;
+    group.add(room);
+
+    // Neon floor grid + glowing pillars + floating orb inside the portal
+    const grid = new THREE.GridHelper(5, 14, 0x38BDF8, 0x1E293B);
+    grid.position.set(0, 0.02, -D / 2); grid.renderOrder = 3;
+    group.add(grid);
+
+    const pMat = new THREE.MeshBasicMaterial({ color: 0xE879F9 });
+    [-1.4, 1.4].forEach(x => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.8, 0.14), pMat);
+      p.position.set(x, 1.4, -2.4); p.renderOrder = 3; group.add(p);
+    });
+
+    const orb = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.36, 1),
+      new THREE.MeshBasicMaterial({ color: 0x38BDF8, wireframe: true })
+    );
+    orb.position.set(0, 1.45, -2.8); orb.renderOrder = 3;
+    group.add(orb);
+
+    return { group, orb };
+  }
+
+  // Launch VeilXR Lab (Portal + OSM Building-Bounce Physics)
+  async function openLab() {
+    const needPerm = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";
+    const permP = needPerm ? DeviceOrientationEvent.requestPermission().catch(() => "denied") : Promise.resolve("granted");
+
+    showAR({ id: "__lab", kind: "model", title: "VeilXR Lab" }, "camera");
+    document.getElementById("arMode").textContent = "IPHONE AR · PORTAL + PHYSICS";
+    labCtl.hidden = false;
+    hint("Tap Drop Portal to place a doorway, or Throw Ball to bounce off nearby buildings.");
+    Compass.start();
+
+    let stream = null;
+    try { stream = await openCameraFeed(); } catch (e) { hint("Camera unavailable — using 3D preview mode."); }
+    await permP;
+
+    const rig = cameraRig();
+    const scene = new THREE.Scene();
+    const root = new THREE.Group();
+    scene.add(root);
+    addStudioLight(scene, root, rig.renderer);
+
+    // Load nearby OpenStreetMap building walls for real-world bounce physics
+    let walls = [];
+    if (S.me && typeof Surround !== "undefined") {
+      Surround.get(S.me, 120).then(dt => {
+        if (!dt?.buildings?.length) return;
+        const cosLat = Math.cos(rad(S.me.lat));
+        dt.buildings.forEach(b => {
+          for (let i = 0; i < b.pts.length - 1; i++) {
+            const a = b.pts[i], c = b.pts[i + 1];
+            const ax = rad(a.lng - S.me.lng) * EARTH * cosLat, az = -rad(a.lat - S.me.lat) * EARTH;
+            const bx = rad(c.lng - S.me.lng) * EARTH * cosLat, bz = -rad(c.lat - S.me.lat) * EARTH;
+            if (Math.hypot(ax, az) < 45) walls.push({ ax, az, bx, bz });
+          }
+        });
+      });
+    }
+
+    let portal = null;
+    const balls = [];
+    const ballGeo = new THREE.SphereGeometry(0.14, 20, 16);
+    const ballMat = new THREE.MeshStandardMaterial({ color: 0x38BDF8, emissive: 0x0A84FF, emissiveIntensity: 0.7, roughness: 0.2, metalness: 0.6 });
+
+    document.getElementById("vxPortalBtn").onclick = () => {
+      if (portal) { root.remove(portal.group); disposeTree(portal.group); }
+      portal = createPortal();
+      const f = flatForward(rig.cam.matrixWorld);
+      portal.group.position.set(rig.cam.position.x + f.x * 3.0, 0, rig.cam.position.z + f.z * 3.0);
+      portal.group.rotation.y = Math.atan2(-f.x, -f.z);
+      root.add(portal.group);
+      hint("Portal placed 3m ahead. Walk forward (or tap Step +1m) to step inside!");
+    };
+
+    document.getElementById("vxBallBtn").onclick = () => {
+      const m = new THREE.Mesh(ballGeo, ballMat);
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.cam.quaternion).normalize();
+      m.position.copy(rig.cam.position).addScaledVector(dir, 0.5);
+      const v = dir.multiplyScalar(11); v.y += 2.2;
+      root.add(m);
+      balls.push({ m, v, age: 0 });
+      hint(walls.length ? `Ball thrown! Colliding with ${walls.length} nearby OSM building walls.` : "Ball thrown! Bouncing off floor & virtual wall 6m ahead.");
+    };
+
+    document.getElementById("vxStepBtn").onclick = () => {
+      const f = flatForward(rig.cam.matrixWorld);
+      rig.cam.position.x += f.x * 1.0;
+      rig.cam.position.z += f.z * 1.0;
+    };
+
+    const steps = stepTracker();
+    let raf = 0, lastT = performance.now() / 1000;
+
+    function loop() {
+      raf = requestAnimationFrame(loop);
+      const now = performance.now() / 1000, dt = Math.min(now - lastT, 0.05); lastT = now;
+      rig.step();
+      steps.apply(rig.cam);
+
+      if (portal) {
+        portal.orb.rotation.y += dt * 1.1;
+        portal.orb.position.y = 1.45 + Math.sin(now * 2.2) * 0.12;
+      }
+
+      // Physics step: gravity, floor bounce, and OSM building wall ricochet
+      for (let i = balls.length - 1; i >= 0; i--) {
+        const b = balls[i]; b.age += dt;
+        b.v.y -= 9.8 * dt;
+        b.m.position.addScaledVector(b.v, dt);
+
+        if (b.m.position.y < 0.14) {
+          b.m.position.y = 0.14; b.v.y = -b.v.y * 0.72;
+          b.v.x *= 0.94; b.v.z *= 0.94;
+        }
+
+        // Bounce off loaded OSM walls (or a 6m test boundary indoors)
+        if (walls.length) {
+          for (const w of walls) {
+            const dx = w.bx - w.ax, dz = w.bz - w.az, l2 = dx * dx + dz * dz || 1;
+            const t = clamp(((b.m.position.x - w.ax) * dx + (b.m.position.z - w.az) * dz) / l2, 0, 1);
+            const px = w.ax + t * dx, pz = w.az + t * dz;
+            const nx = b.m.position.x - px, nz = b.m.position.z - pz, d = Math.hypot(nx, nz);
+            if (d < 0.25 && d > 0.001) {
+              const ux = nx / d, uz = nz / d, dot = b.v.x * ux + b.v.z * uz;
+              if (dot < 0) { b.v.x -= 1.8 * dot * ux; b.v.z -= 1.8 * dot * uz; }
+            }
+          }
+        } else if (Math.hypot(b.m.position.x - rig.cam.position.x, b.m.position.z - rig.cam.position.z) > 6) {
+          b.v.x *= -0.78; b.v.z *= -0.78;
+        }
+
+        if (b.age > 12) { root.remove(b.m); balls.splice(i, 1); }
+      }
+
+      rig.renderer.render(scene, rig.cam);
+    }
+    loop();
+
+    AR.stop = () => {
+      cancelAnimationFrame(raf);
+      steps.stop();
+      rig.stop();
+      labCtl.hidden = true;
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      document.getElementById("arVideo").srcObject = null;
+      disposeTree(scene);
+    };
+  }
+
+  labBtn.addEventListener("click", openLab);
+})();
 </script>
 </body>
 </html>
