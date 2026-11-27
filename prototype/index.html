@@ -1999,7 +1999,7 @@ const placedHint = (o, compass, xr = true) => compass
 
 /* ---------- iPhone: Apple AR Quick Look (ARKit pins the object to the real floor) ---------- */
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const QUICKLOOK = ((() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })() || IOS) && typeof THREE.USDZExporter === "function";
+const QUICKLOOK = IOS && (() => { const a = document.createElement("a"); return !!(a.relList && a.relList.supports && a.relList.supports("ar")); })();
 const usdzCache = new Map();
 const keyOf = d => d.id + ":" + d.kind + ":" + (d.model || "") + ":" + (d.title || "") + ":" + (d.text || "") + ":" + (d.color || "");
 // USDZ has no lines, so thin lines become thin tubes, merged per colour to keep the file small.
@@ -2069,9 +2069,29 @@ function launchQuickLook(url) {
   a.appendChild(document.createElement("img")); document.body.appendChild(a); a.click(); a.remove();
 }
 async function openQuickLook(d) {
-  toast("Opening AR. Point at the floor and the object lands on it.");
-  try { launchQuickLook(await usdzFor(d)); }
-  catch (e) { toast("Couldn't prepare the AR file. Showing 3D preview."); startViewer(d); }
+  if (!QUICKLOOK) { toast("Apple AR requires Safari on a supported iPhone or iPad."); return; }
+  // Safari requires Quick Look navigation to happen during the original tap.
+  // Bundled USDZ files can launch synchronously; awaiting a Promise loses the gesture.
+  if (d.kind === "model" && MODELS3D[d.model] && !window.__buildUsdz) {
+    const url = new URL("models/usdz/" + d.model + ".usdz", location.href).href;
+    launchQuickLook(url);
+    return;
+  }
+  // For generated USDZ, prepare first; a second tap retains the user gesture.
+  const key = keyOf(d);
+  if (window.__readyQuickLook?.has(key)) {
+    launchQuickLook(window.__readyQuickLook.get(key));
+    return;
+  }
+  toast("Preparing Apple AR model. Tap Apple AR again when ready.");
+  usdzFor(d).then(url => {
+    (window.__readyQuickLook ||= new Map()).set(key, url);
+    toast("AR model ready. Tap Apple AR again to open.");
+  }).catch(e => {
+    console.error("USDZ preparation failed", e);
+    toast("Couldn't prepare the AR file. Showing 3D preview.");
+    startViewer(d);
+  });
 }
 
 /* ===================================================================
@@ -2410,7 +2430,7 @@ async function startCamera(d, permP) {
   let placed = false, raf = 0, frame = null, road = null, arrow = null; const t0 = performance.now();
   // Quick Look sticks to the floor better than anything a web page can do, so offer it when you're close
   if (QUICKLOOK && !MODELS3D[d.model]?.game) { $("#arObjCtl").hidden = false; $("#moveBtn").hidden = true; $("#qlBtn").hidden = false; $("#lockVal").textContent = "MAP POSITION"; }
-  $("#qlBtn").onclick = () => { closeAR(); openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
+  $("#qlBtn").onclick = () => { openQuickLook(d); }; $("#qlBtn").textContent = "Apple AR";
   const place = (t, compass) => {
     const f = flatForward(rig.cam.matrixWorld);
     frame = { h: compass ? rad(Compass.heading) : 0, f, g: org.geo };
@@ -3899,16 +3919,6 @@ S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.pat
 
   labBtn.addEventListener("click", openLab);
 })();
-</script>// Fix Apple AR Quick Look for remote GLB models
-  if (typeof usdzFor === "function") {
-    const _origUsdzFor = usdzFor;
-    usdzFor = function (d) {
-      if (d.kind === "model" && MODELS3D[d.model]?.file?.startsWith("http")) {
-        window.__buildUsdz = true;
-        return _origUsdzFor(d).finally(() => { window.__buildUsdz = false; });
-      }
-      return _origUsdzFor(d);
-    };
-  }
+</script>
 </body>
 </html>
