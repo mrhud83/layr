@@ -3600,6 +3600,9 @@ S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.pat
       calBtn.addEventListener("click", () => {
         const open = ar.classList.toggle("vx-cal-open");
         calBtn.setAttribute("aria-pressed", String(open));
+        // "Hide controls" fades the bottom bars out and blocks taps on them, so opening
+        // Calibrate while hidden would show nothing. Bring the controls back first.
+        if (open && ar.classList.contains("hud-off")) setHud(false);
       });
 
       hudBtn.style.marginLeft = "0";
