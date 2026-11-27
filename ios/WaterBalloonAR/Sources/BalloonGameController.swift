@@ -30,7 +30,7 @@ final class BalloonGameController: NSObject, ObservableObject {
             status = "WAIT FOR CAMERA TRACKING"
             return
         }
-        guard frame.camera.trackingState.isNormal else {
+        guard case .normal = frame.camera.trackingState else {
             status = "MOVE PHONE SLOWLY TO RESUME TRACKING"
             return
         }
