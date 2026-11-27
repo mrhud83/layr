@@ -3481,6 +3481,144 @@ renderList();
 startGeo();
 S.drops.filter(d => d.kind === "route" && !d.profile).forEach(computeProfile);
 S.drops.filter(d => d.kind === "route" && !d.drawn && d.walk !== false && !d.path).forEach(fetchWalk);
+</script><!-- ===== VeilXR Modern Liquid Glass UI Upgrade ===== -->
+<style id="veilxr-modern">
+  :root {
+    --vx-glass: rgba(255, 255, 255, 0.72);
+    --vx-glass-strong: rgba(255, 255, 255, 0.86);
+    --vx-border: rgba(15, 23, 42, 0.10);
+    --vx-specular: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+    --vx-shadow: 0 12px 36px rgba(15, 23, 42, 0.14);
+    --vx-accent: #0A84FF;
+    --vx-accent-glow: 0 8px 24px rgba(10, 132, 255, 0.38);
+  }
+  :root[data-theme="dark"] {
+    --vx-glass: rgba(18, 22, 30, 0.58);
+    --vx-glass-strong: rgba(16, 20, 28, 0.78);
+    --vx-border: rgba(255, 255, 255, 0.14);
+    --vx-specular: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    --vx-shadow: 0 14px 40px rgba(0, 0, 0, 0.48);
+    --vx-accent: #38BDF8;
+    --vx-accent-glow: 0 8px 26px rgba(56, 189, 248, 0.34);
+  }
+
+  .frame {
+    background: var(--vx-glass);
+    border: 1px solid var(--vx-border);
+    box-shadow: var(--vx-shadow), var(--vx-specular);
+    backdrop-filter: blur(26px) saturate(190%);
+    -webkit-backdrop-filter: blur(26px) saturate(190%);
+    border-radius: 18px;
+  }
+
+  .hud-top { gap: 8px; }
+  .brand, .readout { border-radius: 999px; height: 42px; padding: 0 15px; }
+  .brand { font-weight: 700; letter-spacing: -0.01em; font-size: 15px; }
+  .readout { gap: 2px; }
+  .readout .top { font-size: 11px; font-weight: 600; }
+  .readout .pos { font-size: 10px; opacity: 0.78; }
+  .readout .dot { width: 7px; height: 7px; box-shadow: 0 0 8px currentColor; }
+
+  .rail { border-radius: 999px; padding: 4px; gap: 2px; }
+  .rail button { width: 38px; height: 38px; border-bottom: 0; border-radius: 50%; transition: background 0.18s ease, transform 0.12s ease; }
+  .rail button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .rail button:active { transform: scale(0.92); }
+
+  .fab-row { gap: 10px; }
+  .drop-btn, .ar-btn { height: 48px; padding: 0 20px; border-radius: 999px; font-weight: 600; font-size: 14.5px; }
+  .drop-btn { background: linear-gradient(135deg, #0A84FF, #38BDF8); color: #fff; box-shadow: var(--vx-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+  .ar-btn { background: var(--vx-glass-strong); border: 1px solid var(--vx-border); }
+
+  .panel { border-radius: 24px 24px 0 0; background: var(--vx-glass-strong); }
+  @media (min-width: 820px) { .panel { border-radius: 22px; } }
+  .panel-bar { position: relative; height: 56px; padding-top: 6px; }
+  .panel-bar::before {
+    content: ""; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+  .panel-body { border-top: 1px solid var(--vx-border); }
+
+  .btn { border-radius: 12px; height: 44px; font-weight: 600; }
+  .btn.primary { background: linear-gradient(135deg, #0A84FF, #38BDF8); box-shadow: var(--vx-accent-glow); }
+  .seg { border-radius: 12px; padding: 3px; }
+  .seg button { border-radius: 9px; }
+  .strip .obj { border-radius: 14px; border: 1px solid transparent; transition: transform 0.15s ease, border-color 0.15s ease; }
+  .strip .obj[aria-pressed="true"] { border-color: var(--vx-accent); background: color-mix(in srgb, var(--vx-accent) 12%, transparent); }
+
+  .ar-top { align-items: center; }
+  .ar-title { border-radius: 999px; padding: 7px 16px; }
+  .ar-title b { font-size: 14px; margin-top: 1px; }
+  .ar-close { width: 42px; height: 42px; border-radius: 50%; }
+  #vxCalBtn {
+    height: 42px; padding: 0 14px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px;
+    font: 600 13px/1 var(--font-ui); color: var(--text); margin-left: auto; transition: background 0.18s ease, border-color 0.18s ease;
+  }
+  #vxCalBtn[aria-pressed="true"] { background: var(--vx-accent); color: #fff; border-color: transparent; }
+  #vxCalBtn svg { width: 15px; height: 15px; }
+
+  #ar:not(.vx-cal-open) #arRouteCtl,
+  #ar:not(.vx-cal-open) #arHdgCtl,
+  #ar:not(.vx-cal-open) #arLvlCtl { display: none !important; }
+
+  .ar-ctl { border-radius: 16px; background: var(--vx-glass-strong); }
+  .ar-hint { border-radius: 999px; padding: 8px 16px; font-size: 12.5px; background: var(--vx-glass); }
+  .ar-game { border-radius: 999px; padding: 8px 14px; }
+  .f-close { border-radius: 50%; }
+  .f-mode { border-radius: 14px; }
+  #fPocket { background: #000; }
+</style>
+
+<script id="veilxr-ui">
+  (function () {
+    document.title = "VeilXR";
+    const brand = document.querySelector(".brand");
+    if (brand) {
+      brand.setAttribute("aria-label", "VeilXR");
+      for (const n of brand.childNodes) {
+        if (n.nodeType === 3 && n.textContent.trim()) n.textContent = " VeilXR";
+      }
+    }
+
+    const ar = document.getElementById("ar");
+    const arTop = document.querySelector(".ar-top");
+    const hudBtn = document.getElementById("hudBtn");
+    const calBars = ["arRouteCtl", "arHdgCtl", "arLvlCtl"].map(id => document.getElementById(id)).filter(Boolean);
+
+    if (ar && arTop && hudBtn && calBars.length) {
+      const calBtn = document.createElement("button");
+      calBtn.id = "vxCalBtn";
+      calBtn.type = "button";
+      calBtn.className = "frame";
+      calBtn.hidden = true;
+      calBtn.setAttribute("aria-pressed", "false");
+      calBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
+        '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="currentColor"/><circle cx="15" cy="17" r="2.2" fill="currentColor"/></svg>' +
+        '<span>Calibrate</span>';
+
+      calBtn.addEventListener("beforexrselect", e => e.preventDefault());
+      calBtn.addEventListener("click", () => {
+        const open = ar.classList.toggle("vx-cal-open");
+        calBtn.setAttribute("aria-pressed", String(open));
+      });
+
+      hudBtn.style.marginLeft = "0";
+      arTop.insertBefore(calBtn, hudBtn);
+
+      const syncCalBtn = () => {
+        const anyActive = calBars.some(el => !el.hidden);
+        calBtn.hidden = !anyActive;
+        if (!anyActive) {
+          ar.classList.remove("vx-cal-open");
+          calBtn.setAttribute("aria-pressed", "false");
+        }
+      };
+
+      const obs = new MutationObserver(syncCalBtn);
+      calBars.forEach(el => obs.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+      syncCalBtn();
+    }
+  })();
 </script>
 </body>
 </html>
