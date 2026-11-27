@@ -1649,9 +1649,10 @@ function messageTexture(d) {
   x.strokeStyle = d.color; x.lineWidth = 4;
   [[0, 0, 1, 1], [1024, 0, -1, 1], [0, 600, 1, -1], [1024, 600, -1, -1]].forEach(([X, Y, sx, sy]) => { x.beginPath(); x.moveTo(X + sx * 44, Y + sy * 3); x.lineTo(X + sx * 3, Y + sy * 3); x.lineTo(X + sx * 3, Y + sy * 44); x.stroke(); });
   x.fillStyle = d.color; x.font = '600 30px "JetBrains Mono", monospace'; x.fillText("MESSAGE", 60, 86);
-  x.fillStyle = "#E6E8EB"; x.font = '600 54px "Inter Tight", system-ui, sans-serif'; x.fillText(d.title.slice(0, 30), 60, 160);
-  x.fillStyle = "#C4C9CF"; x.font = '400 40px "Inter Tight", system-ui, sans-serif';
-  let line = "", y = 236;
+  // The drop title defaults to the beginning of the message; displaying both
+  // repeats its text in AR. Show the actual message only, below the label.
+  x.fillStyle = "#E6E8EB"; x.font = '500 46px "Inter Tight", system-ui, sans-serif';
+  let line = "", y = 160;
   for (const w of d.text.split(/\s+/)) { const t = line ? line + " " + w : w; if (x.measureText(t).width > 900 && line) { x.fillText(line, 60, y); y += 54; line = w; if (y > 560) break; } else line = t; }
   if (y <= 560) x.fillText(line, 60, y);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4; return tex;
